@@ -1,0 +1,12 @@
+apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  name: kinkies.kinky.barpilot.github.com
+spec:
+  group: kinky.barpilot.github.com
+  names:
+    kind: Kinky
+    listKind: KinkyList
+    plural: kinkies
+  scope: Namespaced
+  version: v1alpha1

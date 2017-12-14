@@ -1,0 +1,6 @@
+apiVersion: kinky.barpilot.github.com/v1alpha1
+kind: Kinky
+metadata:
+  name: my-kinky
+spec:
+  version: "v1.8.4"
