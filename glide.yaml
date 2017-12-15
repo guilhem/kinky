@@ -50,3 +50,13 @@ import:
   - cmd/kubeadm/app/phases/controlplane
   - cmd/kubeadm/app/util/apiclient
   - cmd/kubeadm/app/util/config
+- package: k8s.io/code-generator
+  version: release-1.8
+  subpackages:
+  - cmd/defaulter-gen
+  - cmd/client-gen
+  - cmd/lister-gen
+  - cmd/informer-gen
+  - cmd/deepcopy-gen
+- package: k8s.io/gengo
+  version: 9e661e9308f078838e266cca1c673922088c0ea4

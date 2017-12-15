@@ -1,5 +1,5 @@
-hash: 227b1da0f7fc87b0830905ccf8ff125ef79b71cfc2c51bd2339bebf154a03e5f
-updated: 2017-12-14T13:57:07.479546682+01:00
+hash: d6ca230e3549d43c73312ffa22648295a0da5ceb192f54d076915a59120fd059
+updated: 2017-12-15T11:52:17.501874235+01:00
 imports:
 - name: bitbucket.org/ww/goautoneg
   version: '***'
@@ -865,6 +865,16 @@ imports:
   - util/jsonpath
   - util/retry
   - util/workqueue
+- name: k8s.io/code-generator
+  version: 25fd8c8ddbf75b223882df4479f8b8e615da05ae
+  subpackages:
+  - cmd/client-gen
+  - cmd/deepcopy-gen
+  - cmd/defaulter-gen
+  - cmd/informer-gen
+  - cmd/lister-gen
+- name: k8s.io/gengo
+  version: 9e661e9308f078838e266cca1c673922088c0ea4
 - name: k8s.io/kube-openapi
   version: 868f2f29720b192240e18284659231b440f9cda5
   subpackages:
