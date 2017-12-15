@@ -1,4 +1,4 @@
-package cluster
+package etcd
 
 import (
 	"fmt"
@@ -15,7 +15,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
-func createEtcdCluster(client *etcdclientset.Clientset, apiExtClient *apiextensionsclientset.Clientset, name string, ns string) (*etcdv1beta2.EtcdCluster, error) {
+func CreateEtcdCluster(client *etcdclientset.Clientset, apiExtClient *apiextensionsclientset.Clientset, name string, ns string) (*etcdv1beta2.EtcdCluster, error) {
 	if err := waitForETCDCRD(apiExtClient); err != nil {
 		return nil, err
 	}

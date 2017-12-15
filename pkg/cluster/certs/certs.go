@@ -1,4 +1,4 @@
-package cluster
+package certs
 
 import (
 	"crypto/rsa"
@@ -41,7 +41,7 @@ type certsWallet struct {
 	FrontProxyClientKey      *rsa.PrivateKey
 }
 
-func certsPhase(k8sClient *kubernetes.Clientset, cfg *kubeadmapi.MasterConfiguration, ns string, ips []net.IP, hostname string) error {
+func CreateCerts(k8sClient *kubernetes.Clientset, cfg *kubeadmapi.MasterConfiguration, ns string, ips []net.IP, hostname string) error {
 	if !certificatesSecretExists(k8sClient, ns) {
 		wallet, err := createCerts(ips, hostname)
 		if err != nil {

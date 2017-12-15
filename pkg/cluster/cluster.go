@@ -6,6 +6,9 @@ import (
 	"time"
 
 	kinky "github.com/barpilot/kinky/pkg/apis/kinky/v1alpha1"
+	"github.com/barpilot/kinky/pkg/cluster/certs"
+	"github.com/barpilot/kinky/pkg/cluster/etcd"
+	"github.com/barpilot/kinky/pkg/cluster/ingress"
 	etcdclientset "github.com/coreos/etcd-operator/pkg/generated/clientset/versioned"
 	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/client-go/kubernetes"
@@ -27,7 +30,7 @@ import (
 func CreateCluster(k8sClient *kubernetes.Clientset, etcdClient *etcdclientset.Clientset, apiExtClient *apiextensionsclientset.Clientset, cluster kinky.Kinky, baseHost string) error {
 	etcdName := cluster.Name + "-etcd"
 
-	etcdCluster, err := createEtcdCluster(etcdClient, apiExtClient, etcdName, cluster.Namespace)
+	etcdCluster, err := etcd.CreateEtcdCluster(etcdClient, apiExtClient, etcdName, cluster.Namespace)
 	if err != nil {
 		glog.Errorf("Error spawning ETCD cluster: %v", err)
 		return err
@@ -108,7 +111,7 @@ func CreateCluster(k8sClient *kubernetes.Clientset, etcdClient *etcdclientset.Cl
 
 	clusterHostname := fmt.Sprintf("%s.%s.%s", cluster.Name, cluster.Namespace, baseHost)
 
-	if err := certsPhase(k8sClient, internalKubeadmCfg, cluster.Namespace, []net.IP{net.ParseIP(internalAPIIP)}, clusterHostname); err != nil {
+	if err := certs.CreateCerts(k8sClient, internalKubeadmCfg, cluster.Namespace, []net.IP{net.ParseIP(internalAPIIP)}, clusterHostname); err != nil {
 		glog.Errorf("Create certificates and configs fail: %v", err)
 		return err
 	}
@@ -127,7 +130,7 @@ func CreateCluster(k8sClient *kubernetes.Clientset, etcdClient *etcdclientset.Cl
 		}
 	}
 
-	if err := createIngress(k8sClient, "ingress-"+cluster.Name, cluster.Namespace, clusterHostname, apiServiceName); err != nil {
+	if err := ingress.CreateIngress(k8sClient, "ingress-"+cluster.Name, cluster.Namespace, clusterHostname, apiServiceName); err != nil {
 		glog.Errorf("could not create ingress: %v", err)
 		return err
 	}
