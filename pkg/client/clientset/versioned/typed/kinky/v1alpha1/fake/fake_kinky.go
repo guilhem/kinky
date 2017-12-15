@@ -97,6 +97,18 @@ func (c *FakeKinkies) Update(kinky *v1alpha1.Kinky) (result *v1alpha1.Kinky, err
 	return obj.(*v1alpha1.Kinky), err
 }
 
+// UpdateStatus was generated because the type contains a Status member.
+// Add a +genclient:noStatus comment above the type to avoid generating UpdateStatus().
+func (c *FakeKinkies) UpdateStatus(kinky *v1alpha1.Kinky) (*v1alpha1.Kinky, error) {
+	obj, err := c.Fake.
+		Invokes(testing.NewUpdateSubresourceAction(kinkiesResource, "status", c.ns, kinky), &v1alpha1.Kinky{})
+
+	if obj == nil {
+		return nil, err
+	}
+	return obj.(*v1alpha1.Kinky), err
+}
+
 // Delete takes name of the kinky and deletes it. Returns an error if one occurs.
 func (c *FakeKinkies) Delete(name string, options *v1.DeleteOptions) error {
 	_, err := c.Fake.

@@ -34,6 +34,7 @@ type KinkiesGetter interface {
 type KinkyInterface interface {
 	Create(*v1alpha1.Kinky) (*v1alpha1.Kinky, error)
 	Update(*v1alpha1.Kinky) (*v1alpha1.Kinky, error)
+	UpdateStatus(*v1alpha1.Kinky) (*v1alpha1.Kinky, error)
 	Delete(name string, options *v1.DeleteOptions) error
 	DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error
 	Get(name string, options v1.GetOptions) (*v1alpha1.Kinky, error)
@@ -111,6 +112,22 @@ func (c *kinkies) Update(kinky *v1alpha1.Kinky) (result *v1alpha1.Kinky, err err
 		Namespace(c.ns).
 		Resource("kinkies").
 		Name(kinky.Name).
+		Body(kinky).
+		Do().
+		Into(result)
+	return
+}
+
+// UpdateStatus was generated because the type contains a Status member.
+// Add a +genclient:noStatus comment above the type to avoid generating UpdateStatus().
+
+func (c *kinkies) UpdateStatus(kinky *v1alpha1.Kinky) (result *v1alpha1.Kinky, err error) {
+	result = &v1alpha1.Kinky{}
+	err = c.client.Put().
+		Namespace(c.ns).
+		Resource("kinkies").
+		Name(kinky.Name).
+		SubResource("status").
 		Body(kinky).
 		Do().
 		Into(result)

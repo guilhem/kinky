@@ -1,5 +1,5 @@
-hash: 217a95e124597e6af539d8d0c1c3ee7ef2bf818cf68153ad33f60f8c4b0a08fc
-updated: 2017-12-15T15:24:34.126494994+01:00
+hash: c24951733746ad0e76fa9cd1d09b8e0988667b8b0425db5f94183f9102e916aa
+updated: 2017-12-18T16:49:34.330415074+01:00
 imports:
 - name: bitbucket.org/ww/goautoneg
   version: '***'
@@ -343,7 +343,7 @@ imports:
 - name: github.com/pkg/errors
   version: a22138067af1c4942683050411a841ade67fe1eb
 - name: github.com/prometheus/client_golang
-  version: e7e903064f5e9eb5da98208bae10b475d4db0f8c
+  version: c5b7fccd204277076155f10851dad72b76a49317
   subpackages:
   - prometheus
 - name: github.com/prometheus/client_model
@@ -885,7 +885,7 @@ imports:
   - pkg/handler
   - pkg/util
 - name: k8s.io/kubernetes
-  version: dce4b4c82a887c0e7bdd83c5d9dd13e2d4514f78
+  version: c2c5c13728be63b3fc8ad2ec49efbbb94790a2e7
   subpackages:
   - cmd/kube-apiserver/app/options
   - cmd/kube-controller-manager/app/options
@@ -895,7 +895,6 @@ imports:
   - cmd/kubeadm/app/constants
   - cmd/kubeadm/app/features
   - cmd/kubeadm/app/images
-  - cmd/kubeadm/app/phases/bootstraptoken/node
   - cmd/kubeadm/app/phases/certs
   - cmd/kubeadm/app/phases/certs/pkiutil
   - cmd/kubeadm/app/phases/controlplane
@@ -988,7 +987,6 @@ imports:
   - pkg/apis/storage/v1beta1
   - pkg/auth/authorizer/abac
   - pkg/auth/nodeidentifier
-  - pkg/bootstrap/api
   - pkg/capabilities
   - pkg/client/clientset_generated/internalclientset
   - pkg/client/clientset_generated/internalclientset/scheme
@@ -1178,7 +1176,7 @@ imports:
   - third_party/forked/gonum/graph/simple
   - third_party/forked/gonum/graph/traverse
 - name: k8s.io/metrics
-  version: 79239b4dbcda894c89aadd3cffa4cc70a81175cb
+  version: 270d76282f5b666ea1923500518c1ffa1c5b11ce
   subpackages:
   - pkg/apis/metrics
   - pkg/apis/metrics/v1alpha1
