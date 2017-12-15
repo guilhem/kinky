@@ -4,11 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"k8s.io/client-go/kubernetes"
-
 	etcdv1beta2 "github.com/coreos/etcd-operator/pkg/apis/etcd/v1beta2"
-	apiv1 "k8s.io/api/core/v1"
-	extv1beta1 "k8s.io/api/extensions/v1beta1"
+	"github.com/coreos/etcd-operator/pkg/util/constants"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 
@@ -16,57 +13,56 @@ import (
 	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/kubernetes/cmd/kubeadm/app/util/apiclient"
 )
 
-func createEtcdOperator(client *kubernetes.Clientset, ns string) error {
-
-	deployment := &extv1beta1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "etcd-operator",
-			Namespace: ns,
-		},
-		Spec: extv1beta1.DeploymentSpec{
-			Replicas: int32Ptr(1),
-			Template: apiv1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						"name": "etcd-operator",
-					},
-				},
-				Spec: apiv1.PodSpec{
-					Containers: []apiv1.Container{
-						{
-							Name:    "etcd-operator",
-							Image:   "quay.io/coreos/etcd-operator:v0.7.0",
-							Command: []string{"etcd-operator"},
-							Env: []apiv1.EnvVar{
-								{
-									Name: "MY_POD_NAMESPACE",
-									ValueFrom: &apiv1.EnvVarSource{
-										FieldRef: &apiv1.ObjectFieldSelector{
-											FieldPath: "metadata.namespace",
-										},
-									},
-								},
-								{
-									Name: "MY_POD_NAME",
-									ValueFrom: &apiv1.EnvVarSource{
-										FieldRef: &apiv1.ObjectFieldSelector{
-											FieldPath: "metadata.name",
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	return apiclient.CreateOrUpdateDeployment(client, deployment)
-}
+// func createEtcdOperator(client *kubernetes.Clientset, ns string) error {
+//
+// 	deployment := &extv1beta1.Deployment{
+// 		ObjectMeta: metav1.ObjectMeta{
+// 			Name:      "etcd-operator",
+// 			Namespace: ns,
+// 		},
+// 		Spec: extv1beta1.DeploymentSpec{
+// 			Replicas: int32Ptr(1),
+// 			Template: apiv1.PodTemplateSpec{
+// 				ObjectMeta: metav1.ObjectMeta{
+// 					Labels: map[string]string{
+// 						"name": "etcd-operator",
+// 					},
+// 				},
+// 				Spec: apiv1.PodSpec{
+// 					Containers: []apiv1.Container{
+// 						{
+// 							Name:    "etcd-operator",
+// 							Image:   "quay.io/coreos/etcd-operator:v0.7.0",
+// 							Command: []string{"etcd-operator"},
+// 							Env: []apiv1.EnvVar{
+// 								{
+// 									Name: "MY_POD_NAMESPACE",
+// 									ValueFrom: &apiv1.EnvVarSource{
+// 										FieldRef: &apiv1.ObjectFieldSelector{
+// 											FieldPath: "metadata.namespace",
+// 										},
+// 									},
+// 								},
+// 								{
+// 									Name: "MY_POD_NAME",
+// 									ValueFrom: &apiv1.EnvVarSource{
+// 										FieldRef: &apiv1.ObjectFieldSelector{
+// 											FieldPath: "metadata.name",
+// 										},
+// 									},
+// 								},
+// 							},
+// 						},
+// 					},
+// 				},
+// 			},
+// 		},
+// 	}
+//
+// 	return apiclient.CreateOrUpdateDeployment(client, deployment)
+// }
 
 func createEtcdCluster(client *etcdclientset.Clientset, apiExtClient *apiextensionsclientset.Clientset, name string, ns string) (*etcdv1beta2.EtcdCluster, error) {
 	if err := waitForETCDCRD(apiExtClient); err != nil {
@@ -79,6 +75,9 @@ func createEtcdCluster(client *etcdclientset.Clientset, apiExtClient *apiextensi
 			Namespace: ns,
 			Labels: map[string]string{
 				"captaincy": "kinky",
+			},
+			Annotations: map[string]string{
+				constants.AnnotationScope: constants.AnnotationClusterWide,
 			},
 		},
 		Spec: etcdv1beta2.ClusterSpec{
