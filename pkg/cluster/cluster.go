@@ -1,4 +1,4 @@
-package main
+package cluster
 
 import (
 	"fmt"
@@ -24,7 +24,7 @@ import (
 	"k8s.io/kubernetes/pkg/util/version"
 )
 
-func createCluster(k8sClient *kubernetes.Clientset, etcdClient *etcdclientset.Clientset, apiExtClient *apiextensionsclientset.Clientset, cluster kinky.Kinky, baseHost string) error {
+func CreateCluster(k8sClient *kubernetes.Clientset, etcdClient *etcdclientset.Clientset, apiExtClient *apiextensionsclientset.Clientset, cluster kinky.Kinky, baseHost string) error {
 	etcdName := cluster.Name + "-etcd"
 
 	etcdCluster, err := createEtcdCluster(etcdClient, apiExtClient, etcdName, cluster.Namespace)

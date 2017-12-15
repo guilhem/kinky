@@ -1,7 +1,9 @@
-package main
+package cluster
 
 import (
 	kinky "github.com/barpilot/kinky/pkg/apis/kinky/v1alpha1"
+	"github.com/barpilot/kinky/pkg/util"
+	"github.com/barpilot/kinky/pkg/util/constants"
 	apiv1 "k8s.io/api/core/v1"
 	extv1beta1 "k8s.io/api/extensions/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -39,7 +41,7 @@ func GetControleplaneDeployments(cluster kinky.Kinky, cfg *kubeadm.MasterConfigu
 			if volume.Name == kubeadmconstants.KubeConfigVolumeName {
 				pod.Spec.Volumes[i].VolumeSource = apiv1.VolumeSource{
 					Secret: &apiv1.SecretVolumeSource{
-						SecretName: kubeconfigSecret,
+						SecretName: constants.KubeconfigSecret,
 					},
 				}
 				for iC, container := range pod.Spec.Containers {
@@ -61,7 +63,7 @@ func GetControleplaneDeployments(cluster kinky.Kinky, cfg *kubeadm.MasterConfigu
 				Namespace: cluster.Namespace,
 			},
 			Spec: extv1beta1.DeploymentSpec{
-				Replicas: int32Ptr(1),
+				Replicas: util.Int32Ptr(1),
 				Template: apiv1.PodTemplateSpec{
 					ObjectMeta: pod.ObjectMeta,
 					Spec:       pod.Spec,

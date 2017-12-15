@@ -1,12 +1,12 @@
-package main
+package cluster
 
 import (
 	"strings"
-	
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/cmd/kubeadm/app/apis/kubeadm"
 	"k8s.io/kubernetes/cmd/kubeadm/app/apis/kubeadm/v1alpha1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	 "k8s.io/kubernetes/cmd/kubeadm/app/constants"
+	"k8s.io/kubernetes/cmd/kubeadm/app/constants"
 )
 
 func SetDefaults_MasterConfiguration(obj *kubeadm.MasterConfiguration) {
