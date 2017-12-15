@@ -45,6 +45,7 @@ type Controller struct {
 
 type Config struct {
 	Namespace      string
+	ClusterWide    bool
 	ServiceAccount string
 	KubeCli        kubernetes.Interface
 	KubeExtCli     apiextensionsclient.Interface
@@ -63,6 +64,11 @@ func New(cfg Config) *Controller {
 
 func (c *Controller) handleClusterEvent(event *Event) error {
 	clus := event.Object
+
+	if !c.managed(clus) {
+		c.logger.Info("Cluster isn't managed: %v", clus)
+		return nil
+	}
 
 	if clus.Status.IsFailed() {
 		clustersFailed.Inc()

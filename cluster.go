@@ -5,8 +5,8 @@ import (
 	"net"
 	"time"
 
-	etcdclientset "github.com/coreos/etcd-operator/pkg/generated/clientset/versioned"
 	kinky "github.com/barpilot/kinky/pkg/apis/kinky/v1alpha1"
+	etcdclientset "github.com/coreos/etcd-operator/pkg/generated/clientset/versioned"
 	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/client-go/kubernetes"
 	kubeadmconstants "k8s.io/kubernetes/cmd/kubeadm/app/constants"
@@ -25,11 +25,6 @@ import (
 )
 
 func createCluster(k8sClient *kubernetes.Clientset, etcdClient *etcdclientset.Clientset, apiExtClient *apiextensionsclientset.Clientset, cluster kinky.Kinky, baseHost string) error {
-	if err := createEtcdOperator(k8sClient, cluster.Namespace); err != nil {
-		glog.Errorf("Error spawning ETCD operator: %v", err)
-		return err
-	}
-
 	etcdName := cluster.Name + "-etcd"
 
 	etcdCluster, err := createEtcdCluster(etcdClient, apiExtClient, etcdName, cluster.Namespace)

@@ -68,7 +68,7 @@ func NewS3RestoreSource(path, awsSecret string) *api.S3RestoreSource {
 }
 
 // NewEtcdRestore returns an EtcdRestore CR with the specified RestoreSource
-func NewEtcdRestore(restoreName, version string, size int, restoreSource api.RestoreSource) *api.EtcdRestore {
+func NewEtcdRestore(restoreName string, size int, restoreSource api.RestoreSource) *api.EtcdRestore {
 	return &api.EtcdRestore{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       api.EtcdRestoreResourceKind,
@@ -81,9 +81,24 @@ func NewEtcdRestore(restoreName, version string, size int, restoreSource api.Res
 			ClusterSpec: api.ClusterSpec{
 				Repository: "quay.io/coreos/etcd",
 				Size:       size,
-				Version:    version,
 			},
 			RestoreSource: restoreSource,
+		},
+	}
+}
+
+// RestoreCRWithTLS attaches StaticTLS to its ClusterSpec.
+func RestoreCRWithTLS(er *api.EtcdRestore, memberPeerTLSSecret, memberServerTLSSecret, operatorClientTLSSecret string) {
+	if er == nil {
+		return
+	}
+	er.Spec.ClusterSpec.TLS = &api.TLSPolicy{
+		Static: &api.StaticTLS{
+			Member: &api.MemberSecret{
+				PeerSecret:   memberPeerTLSSecret,
+				ServerSecret: memberServerTLSSecret,
+			},
+			OperatorSecret: operatorClientTLSSecret,
 		},
 	}
 }

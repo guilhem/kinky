@@ -30,4 +30,7 @@ const (
 	EnvOperatorPodName            = "MY_POD_NAME"
 	EnvOperatorPodNamespace       = "MY_POD_NAMESPACE"
 	EnvRestoreOperatorServiceName = "SERVICE_ADDR"
+
+	AnnotationScope       = "etcd.database.coreos.com/scope"
+	AnnotationClusterWide = "clusterwide"
 )
