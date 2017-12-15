@@ -1,4 +1,4 @@
-package main
+package cluster
 
 import (
 	"crypto/rsa"
@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+
+	"github.com/barpilot/kinky/pkg/util/constants"
 
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
@@ -173,7 +175,7 @@ func createCertificatesSecret(k8sClient *kubernetes.Clientset, ns string, wallet
 }
 
 func kubeconfigSecretExists(k8sClient *kubernetes.Clientset, ns string) bool {
-	_, err := k8sClient.CoreV1().Secrets(ns).Get(kubeconfigSecret, metav1.GetOptions{})
+	_, err := k8sClient.CoreV1().Secrets(ns).Get(constants.KubeconfigSecret, metav1.GetOptions{})
 	if err != nil {
 		return false
 	}
@@ -218,7 +220,7 @@ func createKubeconfigSecret(k8sClient *kubernetes.Clientset, cfg *kubeadmapi.Mas
 	secret := &v1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: ns,
-			Name:      kubeconfigSecret,
+			Name:      constants.KubeconfigSecret,
 		},
 		Data: map[string][]byte{
 			kubeadmconstants.SchedulerKubeConfigFileName:         schedulerFile,

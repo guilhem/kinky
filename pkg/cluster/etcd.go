@@ -1,4 +1,4 @@
-package main
+package cluster
 
 import (
 	"fmt"
@@ -14,55 +14,6 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
-
-// func createEtcdOperator(client *kubernetes.Clientset, ns string) error {
-//
-// 	deployment := &extv1beta1.Deployment{
-// 		ObjectMeta: metav1.ObjectMeta{
-// 			Name:      "etcd-operator",
-// 			Namespace: ns,
-// 		},
-// 		Spec: extv1beta1.DeploymentSpec{
-// 			Replicas: int32Ptr(1),
-// 			Template: apiv1.PodTemplateSpec{
-// 				ObjectMeta: metav1.ObjectMeta{
-// 					Labels: map[string]string{
-// 						"name": "etcd-operator",
-// 					},
-// 				},
-// 				Spec: apiv1.PodSpec{
-// 					Containers: []apiv1.Container{
-// 						{
-// 							Name:    "etcd-operator",
-// 							Image:   "quay.io/coreos/etcd-operator:v0.7.0",
-// 							Command: []string{"etcd-operator"},
-// 							Env: []apiv1.EnvVar{
-// 								{
-// 									Name: "MY_POD_NAMESPACE",
-// 									ValueFrom: &apiv1.EnvVarSource{
-// 										FieldRef: &apiv1.ObjectFieldSelector{
-// 											FieldPath: "metadata.namespace",
-// 										},
-// 									},
-// 								},
-// 								{
-// 									Name: "MY_POD_NAME",
-// 									ValueFrom: &apiv1.EnvVarSource{
-// 										FieldRef: &apiv1.ObjectFieldSelector{
-// 											FieldPath: "metadata.name",
-// 										},
-// 									},
-// 								},
-// 							},
-// 						},
-// 					},
-// 				},
-// 			},
-// 		},
-// 	}
-//
-// 	return apiclient.CreateOrUpdateDeployment(client, deployment)
-// }
 
 func createEtcdCluster(client *etcdclientset.Clientset, apiExtClient *apiextensionsclientset.Clientset, name string, ns string) (*etcdv1beta2.EtcdCluster, error) {
 	if err := waitForETCDCRD(apiExtClient); err != nil {

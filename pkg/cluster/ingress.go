@@ -1,6 +1,8 @@
-package main
+package cluster
 
 import (
+	"fmt"
+
 	"k8s.io/api/extensions/v1beta1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -35,10 +37,14 @@ func createIngress(k8sClient *kubernetes.Clientset, name, namespace, host, servi
 			},
 		},
 	}
-	_, err := k8sClient.Extensions().Ingresses(namespace).Create(ingress)
-	if !apierrors.IsAlreadyExists(err) {
-		return err
+
+	if _, err := k8sClient.Extensions().Ingresses(namespace).Create(ingress); err != nil {
+		if !apierrors.IsAlreadyExists(err) {
+			return fmt.Errorf("unable to create cluster ingress: %v", err)
+		}
+		if _, err = k8sClient.Extensions().Ingresses(namespace).Update(ingress); err != nil {
+			return fmt.Errorf("unable to update cluster ingress: %v", err)
+		}
 	}
-	_, err = k8sClient.Extensions().Ingresses(namespace).Update(ingress)
-	return err
+	return nil
 }
