@@ -1,9 +1,10 @@
-// Copyright 2017 The Prometheus Authors
+// Copyright 2016 The etcd-operator Authors
+//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-// http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -11,28 +12,33 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// +build !go1.8
-
-package promhttp
+package cluster
 
 import (
-	"io"
-	"net/http"
+	"github.com/pkg/errors"
 )
 
-func newDelegator(w http.ResponseWriter, observeWriteHeaderFunc func(int)) delegator {
-	d := &responseWriterDelegator{
-		ResponseWriter:     w,
-		observeWriteHeader: observeWriteHeaderFunc,
-	}
+var (
+	errCreatedCluster = errors.New("cluster failed to be created")
+)
 
-	_, cn := w.(http.CloseNotifier)
-	_, fl := w.(http.Flusher)
-	_, hj := w.(http.Hijacker)
-	_, rf := w.(io.ReaderFrom)
-	if cn && fl && hj && rf {
-		return &fancyDelegator{d}
-	}
+type fatalError struct {
+	reason string
+}
 
-	return d
+func (fe *fatalError) Error() string {
+	return fe.reason
+}
+
+func newFatalError(reason string) *fatalError {
+	return &fatalError{reason}
+}
+
+func isFatalError(err error) bool {
+	switch errors.Cause(err).(type) {
+	case *fatalError:
+		return true
+	default:
+		return false
+	}
 }

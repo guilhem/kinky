@@ -1,8 +1,8 @@
 package: github.com/barpilot/kinky
 import:
 - package: github.com/coreos/etcd-operator
-  repo: https://github.com/barpilot/etcd-operator.git
   version: clusterwide
+  repo: https://github.com/barpilot/etcd-operator.git
   subpackages:
   - pkg/apis/etcd/v1beta2
   - pkg/generated/clientset/versioned
@@ -62,3 +62,7 @@ import:
   - cmd/deepcopy-gen
 - package: k8s.io/gengo
   version: 9e661e9308f078838e266cca1c673922088c0ea4
+- package: github.com/prometheus/client_golang
+  version: ~v0.8.0
+  subpackages:
+  - prometheus

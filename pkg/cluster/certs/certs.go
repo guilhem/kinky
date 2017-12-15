@@ -41,7 +41,7 @@ type certsWallet struct {
 	FrontProxyClientKey      *rsa.PrivateKey
 }
 
-func CreateCerts(k8sClient *kubernetes.Clientset, cfg *kubeadmapi.MasterConfiguration, ns string, ips []net.IP, hostname string) error {
+func CreateCerts(k8sClient kubernetes.Interface, cfg *kubeadmapi.MasterConfiguration, ns string, ips []net.IP, hostname string) error {
 	if !certificatesSecretExists(k8sClient, ns) {
 		wallet, err := createCerts(ips, hostname)
 		if err != nil {
@@ -132,7 +132,7 @@ func createCerts(ips []net.IP, hostname string) (*certsWallet, error) {
 	return &wallet, nil
 }
 
-func certificatesSecretExists(k8sClient *kubernetes.Clientset, ns string) bool {
+func certificatesSecretExists(k8sClient kubernetes.Interface, ns string) bool {
 	_, err := k8sClient.CoreV1().Secrets(ns).Get(kubeadmconstants.KubeCertificatesVolumeName, metav1.GetOptions{})
 	if err != nil {
 		return false
@@ -140,7 +140,7 @@ func certificatesSecretExists(k8sClient *kubernetes.Clientset, ns string) bool {
 	return true
 }
 
-func createCertificatesSecret(k8sClient *kubernetes.Clientset, ns string, wallet *certsWallet) error {
+func createCertificatesSecret(k8sClient kubernetes.Interface, ns string, wallet *certsWallet) error {
 
 	serviceAccountPublicKey, err := certutil.EncodePublicKeyPEM(&wallet.ServiceAccountPrivateKey.PublicKey)
 	if err != nil {
@@ -174,7 +174,7 @@ func createCertificatesSecret(k8sClient *kubernetes.Clientset, ns string, wallet
 	return nil
 }
 
-func kubeconfigSecretExists(k8sClient *kubernetes.Clientset, ns string) bool {
+func kubeconfigSecretExists(k8sClient kubernetes.Interface, ns string) bool {
 	_, err := k8sClient.CoreV1().Secrets(ns).Get(constants.KubeconfigSecret, metav1.GetOptions{})
 	if err != nil {
 		return false
@@ -182,7 +182,7 @@ func kubeconfigSecretExists(k8sClient *kubernetes.Clientset, ns string) bool {
 	return true
 }
 
-func createKubeconfigSecret(k8sClient *kubernetes.Clientset, cfg *kubeadmapi.MasterConfiguration, ns string, wallet *certsWallet) error {
+func createKubeconfigSecret(k8sClient kubernetes.Interface, cfg *kubeadmapi.MasterConfiguration, ns string, wallet *certsWallet) error {
 
 	kubeConfigs, err := createKubeConfigFiles(cfg, wallet.CaCert, wallet.CaKey)
 	if err != nil {

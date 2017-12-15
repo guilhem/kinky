@@ -16,8 +16,8 @@ limitations under the License.
 package versioned
 
 import (
-	glog "github.com/golang/glog"
 	kinkyv1alpha1 "github.com/barpilot/kinky/pkg/client/clientset/versioned/typed/kinky/v1alpha1"
+	glog "github.com/golang/glog"
 	discovery "k8s.io/client-go/discovery"
 	rest "k8s.io/client-go/rest"
 	flowcontrol "k8s.io/client-go/util/flowcontrol"
