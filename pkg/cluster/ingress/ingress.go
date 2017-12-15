@@ -1,4 +1,4 @@
-package cluster
+package ingress
 
 import (
 	"fmt"
@@ -10,7 +10,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-func createIngress(k8sClient *kubernetes.Clientset, name, namespace, host, service string) error {
+func CreateIngress(k8sClient *kubernetes.Clientset, name, namespace, host, service string) error {
 	ingress := &v1beta1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,
