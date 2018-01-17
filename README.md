@@ -18,6 +18,8 @@ Security is not an option.
 
 ## [Why?](/doc/why.md)
 
+## [Features & Roadmap](/doc/features.md)
+
 ## Usage
 
 Create a new cluster via `Kinky` object like:
