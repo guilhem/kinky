@@ -3,8 +3,10 @@ kind: "EtcdBackup"
 metadata:
   name: example-etcd-cluster-backup
 spec:
-  clusterName: example-etcd-cluster
+  etcdEndpoints: [<etcd-cluster-endpoints>]
   storageType: S3
   s3:
-    s3Bucket: <s3-bucket-name>
+    # The format of "path" must be: "<s3-bucket-name>/<path-to-backup-file>"
+    # e.g: "mybucket/etcd.backup"
+    path: <full-s3-path>
     awsSecret: <aws-secret>

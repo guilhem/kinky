@@ -14,7 +14,7 @@ This will use the default version chosen by the etcd-operator.
 ```yaml
 spec:
   size: 3
-  version: "3.2.11"
+  version: "3.2.13"
 ```
 
 ## Three member cluster with node selector and anti-affinity across nodes
@@ -54,9 +54,34 @@ spec:
         cpu: 200m
         memory: 100Mi
 ```
+
+## Custom etcd configuration
+
+etcd members could be configured via env: https://coreos.com/etcd/docs/latest/op-guide/configuration.html
+
+```yaml
+spec:
+  size: 3
+  pod:
+    etcdEnv:
+    - name: ETCD_AUTO_COMPACTION_RETENTION
+      value: "1"
+```
+
 ## TLS
 
 For more information on working with TLS, see [Cluster TLS policy][cluster-tls].
+
+## Custom pod annotations
+
+```yaml
+spec:
+  size: 3
+  pod:
+    annotations:
+      prometheus.io/scrape: "true"
+      prometheus.io/port: "2379"
+```
 
 
 [cluster-tls]: cluster_tls.md

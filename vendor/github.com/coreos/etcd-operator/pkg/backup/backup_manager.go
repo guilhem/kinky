@@ -17,19 +17,13 @@ package backup
 import (
 	"context"
 	"crypto/tls"
-	"errors"
 	"fmt"
-	"path"
 
-	"github.com/coreos/etcd-operator/pkg/backup/util"
 	"github.com/coreos/etcd-operator/pkg/backup/writer"
 	"github.com/coreos/etcd-operator/pkg/util/constants"
-	"github.com/coreos/etcd-operator/pkg/util/etcdutil"
-	"github.com/coreos/etcd-operator/pkg/util/k8sutil"
 
 	"github.com/coreos/etcd/clientv3"
 	"github.com/sirupsen/logrus"
-	"k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -37,7 +31,7 @@ import (
 type BackupManager struct {
 	kubecli kubernetes.Interface
 
-	clusterName   string
+	endpoints     []string
 	namespace     string
 	etcdTLSConfig *tls.Config
 
@@ -45,133 +39,105 @@ type BackupManager struct {
 }
 
 // NewBackupManagerFromWriter creates a BackupManager with backup writer.
-func NewBackupManagerFromWriter(kubecli kubernetes.Interface, bw writer.Writer, tc *tls.Config, clusterName, namespace string) *BackupManager {
+func NewBackupManagerFromWriter(kubecli kubernetes.Interface, bw writer.Writer, tc *tls.Config, endpoints []string, namespace string) *BackupManager {
 	return &BackupManager{
 		kubecli:       kubecli,
-		clusterName:   clusterName,
+		endpoints:     endpoints,
 		namespace:     namespace,
 		etcdTLSConfig: tc,
 		bw:            bw,
 	}
 }
 
-// SaveSnapWithPrefix uses backup writer to save latest snapshot to a path prepended with the given prefix
-// and returns file size and full path.
-// the full path has the format of prefix/<etcd_version>_<snapshot_reversion>_etcd.backup
-// e.g prefix = etcd-backups/v1/default/example-etcd-cluster and
-// backup object name = 3.2.11_0000000000000001_etcd.backup
-// full path is "etcd-backups/v1/default/example-etcd-cluster/3.2.11_0000000000000001_etcd.backup".
-func (bm *BackupManager) SaveSnapWithPrefix(prefix string) (string, error) {
-	etcdcli, rev, err := bm.etcdClientWithMaxRevision()
+// SaveSnap uses backup writer to save etcd snapshot to a specified S3 path
+// and returns backup etcd server's kv store revision and its version.
+func (bm *BackupManager) SaveSnap(ctx context.Context, s3Path string) (int64, string, error) {
+	etcdcli, rev, err := bm.etcdClientWithMaxRevision(ctx)
 	if err != nil {
-		return "", fmt.Errorf("create etcd client failed: %v", err)
+		return 0, "", fmt.Errorf("create etcd client failed: %v", err)
 	}
 	defer etcdcli.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), constants.DefaultSnapshotTimeout)
-	defer cancel() // Can't cancel() after Snapshot() because that will close the reader.
+	resp, err := etcdcli.Status(ctx, etcdcli.Endpoints()[0])
+	if err != nil {
+		return 0, "", fmt.Errorf("failed to retrieve etcd version from the status call: %v", err)
+	}
+
 	rc, err := etcdcli.Snapshot(ctx)
 	if err != nil {
-		return "", fmt.Errorf("failed to receive snapshot (%v)", err)
+		return 0, "", fmt.Errorf("failed to receive snapshot (%v)", err)
 	}
 	defer rc.Close()
 
-	version, err := getEtcdVersion(etcdcli.Maintenance, etcdcli.Endpoints()[0])
+	_, err = bm.bw.Write(ctx, s3Path, rc)
 	if err != nil {
-		return "", err
+		return 0, "", fmt.Errorf("failed to write snapshot (%v)", err)
 	}
-	fullPath := path.Join(prefix, util.MakeBackupName(version, rev))
-	_, err = bm.bw.Write(fullPath, rc)
-	if err != nil {
-		return "", fmt.Errorf("failed to write snapshot (%v)", err)
-	}
-	return fullPath, nil
+	return rev, resp.Version, nil
 }
 
-func getEtcdVersion(mcli clientv3.Maintenance, endpoint string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), constants.DefaultSnapshotTimeout)
-	resp, err := mcli.Status(ctx, endpoint)
-	cancel()
+// etcdClientWithMaxRevision gets the etcd endpoint with the maximum kv store revision
+// and returns the etcd client of that member.
+func (bm *BackupManager) etcdClientWithMaxRevision(ctx context.Context) (*clientv3.Client, int64, error) {
+	etcdcli, rev, err := getClientWithMaxRev(ctx, bm.endpoints, bm.etcdTLSConfig)
 	if err != nil {
-		return "", fmt.Errorf("failed to receive etcd version (%v)", err)
-	}
-	return resp.Version, nil
-}
-
-// etcdClientWithMaxRevision gets the etcd member with the maximum kv store revision
-// and returns the etcd client and the rev of that member.
-func (bm *BackupManager) etcdClientWithMaxRevision() (*clientv3.Client, int64, error) {
-	podList, err := bm.kubecli.Core().Pods(bm.namespace).List(k8sutil.ClusterListOpt(bm.clusterName))
-	if err != nil {
-		return nil, 0, err
-	}
-
-	var pods []*v1.Pod
-	for i := range podList.Items {
-		pod := &podList.Items[i]
-		if pod.Status.Phase == v1.PodRunning {
-			pods = append(pods, pod)
-		}
-	}
-
-	if len(pods) == 0 {
-		return nil, 0, errors.New("no running etcd pods found")
-	}
-	member, rev := getMemberWithMaxRev(pods, bm.etcdTLSConfig)
-	if member == nil {
-		return nil, 0, errors.New("no reachable member")
-	}
-
-	etcdcli, err := createEtcdClient(member.ClientURL(), bm.etcdTLSConfig)
-	if err != nil {
-		return nil, 0, fmt.Errorf("create etcd client failed: %v", err)
+		return nil, 0, fmt.Errorf("failed to get etcd client with maximum kv store revision: %v", err)
 	}
 	return etcdcli, rev, nil
 }
 
-func getMemberWithMaxRev(pods []*v1.Pod, tc *tls.Config) (*etcdutil.Member, int64) {
-	var member *etcdutil.Member
+func getClientWithMaxRev(ctx context.Context, endpoints []string, tc *tls.Config) (*clientv3.Client, int64, error) {
+	mapEps := make(map[string]*clientv3.Client)
+	var maxClient *clientv3.Client
 	maxRev := int64(0)
-	for _, pod := range pods {
-		m := &etcdutil.Member{
-			Name:         pod.Name,
-			Namespace:    pod.Namespace,
-			SecureClient: tc != nil,
-		}
+	errors := make([]string, 0)
+	for _, endpoint := range endpoints {
+		// TODO: update clientv3 to 3.2.x and then use ctx as in clientv3.Config.
 		cfg := clientv3.Config{
-			Endpoints:   []string{m.ClientURL()},
+			Endpoints:   []string{endpoint},
 			DialTimeout: constants.DefaultDialTimeout,
 			TLS:         tc,
 		}
 		etcdcli, err := clientv3.New(cfg)
 		if err != nil {
-			logrus.Warningf("failed to create etcd client for pod (%v): %v", pod.Name, err)
+			errors = append(errors, fmt.Sprintf("failed to create etcd client for endpoint (%v): %v", endpoint, err))
 			continue
 		}
-		defer etcdcli.Close()
+		mapEps[endpoint] = etcdcli
 
-		ctx, cancel := context.WithTimeout(context.Background(), constants.DefaultRequestTimeout)
 		resp, err := etcdcli.Get(ctx, "/", clientv3.WithSerializable())
-		cancel()
 		if err != nil {
-			logrus.Warningf("getMaxRev: failed to get revision from member %s (%s)", m.Name, m.ClientURL())
+			errors = append(errors, fmt.Sprintf("failed to get revision from endpoint (%s)", endpoint))
 			continue
 		}
 
-		logrus.Infof("getMaxRev: member %s revision (%d)", m.Name, resp.Header.Revision)
+		logrus.Infof("getMaxRev: endpoint %s revision (%d)", endpoint, resp.Header.Revision)
 		if resp.Header.Revision > maxRev {
 			maxRev = resp.Header.Revision
-			member = m
+			maxClient = etcdcli
 		}
 	}
-	return member, maxRev
-}
 
-func createEtcdClient(url string, tlsConfig *tls.Config) (*clientv3.Client, error) {
-	cfg := clientv3.Config{
-		Endpoints:   []string{url},
-		DialTimeout: constants.DefaultDialTimeout,
-		TLS:         tlsConfig,
+	// close all open clients that are not maxClient.
+	for _, cli := range mapEps {
+		if cli == maxClient {
+			continue
+		}
+		cli.Close()
 	}
-	return clientv3.New(cfg)
+
+	if maxClient == nil {
+		return nil, 0, fmt.Errorf("could not create an etcd client for the max revision purpose from given endpoints (%v)", endpoints)
+	}
+
+	var err error
+	if len(errors) > 0 {
+		errorStr := ""
+		for _, errStr := range errors {
+			errorStr += errStr + "\n"
+		}
+		err = fmt.Errorf(errorStr)
+	}
+
+	return maxClient, maxRev, err
 }

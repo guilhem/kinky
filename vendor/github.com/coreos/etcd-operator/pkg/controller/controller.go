@@ -62,33 +62,37 @@ func New(cfg Config) *Controller {
 	}
 }
 
-func (c *Controller) handleClusterEvent(event *Event) error {
+func (c *Controller) handleClusterEvent(event *Event) (ignored bool, err error) {
 	clus := event.Object
 
 	if !c.managed(clus) {
-		c.logger.Info("Cluster isn't managed: %v", clus)
-		return nil
+		ignored = true
+		return
 	}
+	ignored = false
 
 	if clus.Status.IsFailed() {
 		clustersFailed.Inc()
 		if event.Type == kwatch.Deleted {
 			delete(c.clusters, clus.Name)
-			return nil
+			return
 		}
-		return fmt.Errorf("ignore failed cluster (%s). Please delete its CR", clus.Name)
+		err = fmt.Errorf("ignore failed cluster (%s). Please delete its CR", clus.Name)
+		return
 	}
 
 	clus.SetDefaults()
 
-	if err := clus.Spec.Validate(); err != nil {
-		return fmt.Errorf("invalid cluster spec. please fix the following problem with the cluster spec: %v", err)
+	if e := clus.Spec.Validate(); e != nil {
+		err = fmt.Errorf("invalid cluster spec. please fix the following problem with the cluster spec: %v", err)
+		return
 	}
 
 	switch event.Type {
 	case kwatch.Added:
 		if _, ok := c.clusters[clus.Name]; ok {
-			return fmt.Errorf("unsafe state. cluster (%s) was created before but we received event (%s)", clus.Name, event.Type)
+			err = fmt.Errorf("unsafe state. cluster (%s) was created before but we received event (%s)", clus.Name, event.Type)
+			return
 		}
 
 		nc := cluster.New(c.makeClusterConfig(), clus)
@@ -100,21 +104,23 @@ func (c *Controller) handleClusterEvent(event *Event) error {
 
 	case kwatch.Modified:
 		if _, ok := c.clusters[clus.Name]; !ok {
-			return fmt.Errorf("unsafe state. cluster (%s) was never created but we received event (%s)", clus.Name, event.Type)
+			err = fmt.Errorf("unsafe state. cluster (%s) was never created but we received event (%s)", clus.Name, event.Type)
+			return
 		}
 		c.clusters[clus.Name].Update(clus)
 		clustersModified.Inc()
 
 	case kwatch.Deleted:
 		if _, ok := c.clusters[clus.Name]; !ok {
-			return fmt.Errorf("unsafe state. cluster (%s) was never created but we received event (%s)", clus.Name, event.Type)
+			err = fmt.Errorf("unsafe state. cluster (%s) was never created but we received event (%s)", clus.Name, event.Type)
+			return
 		}
 		c.clusters[clus.Name].Delete()
 		delete(c.clusters, clus.Name)
 		clustersDeleted.Inc()
 		clustersTotal.Dec()
 	}
-	return nil
+	return
 }
 
 func (c *Controller) makeClusterConfig() cluster.Config {

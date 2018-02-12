@@ -19,7 +19,6 @@ import (
 	"flag"
 	"fmt"
 	"os/exec"
-	"strconv"
 	"time"
 
 	"github.com/coreos/etcd-operator/pkg/client"
@@ -101,12 +100,6 @@ func (f *Framework) setup() error {
 	}
 	logrus.Info("etcd operator created successfully")
 
-	err = f.SetupEtcdRestoreOperatorService()
-	if err != nil {
-		return err
-	}
-	logrus.Info("etcd restore operator pod and service created successfully")
-
 	logrus.Info("e2e setup successfully")
 	return nil
 }
@@ -172,10 +165,6 @@ func (f *Framework) SetupEtcdOperator() error {
 					{
 						Name:      constants.EnvOperatorPodName,
 						ValueFrom: &v1.EnvVarSource{FieldRef: &v1.ObjectFieldSelector{FieldPath: "metadata.name"}},
-					},
-					{
-						Name:  constants.EnvRestoreOperatorServiceName,
-						Value: etcdRestoreOperatorServiceName + ":" + strconv.Itoa(etcdRestoreServicePort),
 					},
 				},
 			}},

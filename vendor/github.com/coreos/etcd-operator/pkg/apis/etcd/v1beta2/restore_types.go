@@ -39,23 +39,39 @@ type EtcdRestore struct {
 
 // RestoreSpec defines how to restore an etcd cluster from existing backup.
 type RestoreSpec struct {
-	// ClusterSpec defines the same spec that etcd operator will run later.
-	// using this spec, restore operator will prepare the seed that
-	// etcd operator will pick up later.
-	ClusterSpec ClusterSpec `json:"clusterSpec"`
+	// BackupStorageType is the type of the backup storage which is used as RestoreSource.
+	BackupStorageType BackupStorageType `json:"backupStorageType"`
 	// RestoreSource tells the where to get the backup and restore from.
 	RestoreSource `json:",inline"`
+	// EtcdCluster references an EtcdCluster resource whose metadata and spec
+	// will be used to create the new restored EtcdCluster CR.
+	// This reference EtcdCluster CR and all its resources will be deleted before the
+	// restored EtcdCluster CR is created.
+	EtcdCluster EtcdClusterRef `json:"etcdCluster"`
+}
+
+// EtcdCluster references an EtcdCluster resource whose metadata and spec
+// will be used to create the new restored EtcdCluster CR.
+// This reference EtcdCluster CR and all its resources will be deleted before the
+// restored EtcdCluster CR is created.
+type EtcdClusterRef struct {
+	// Name is the EtcdCluster resource name.
+	// This reference EtcdCluster must be present in the same namespace as the restore-operator
+	Name string `json:"name"`
 }
 
 type RestoreSource struct {
 	// S3 tells where on S3 the backup is saved and how to fetch the backup.
 	S3 *S3RestoreSource `json:"s3,omitempty"`
+
+	// ABS tells where on ABS the backup is saved and how to fetch the backup.
+	ABS *ABSRestoreSource `json:"abs,omitempty"`
 }
 
 type S3RestoreSource struct {
 	// Path is the full s3 path where the backup is saved.
 	// The format of the path must be: "<s3-bucket-name>/<path-to-backup-file>"
-	// e.g: "etcd-backups/v1/default/example-etcd-cluster/3.2.11_0000000000000001_etcd.backup"
+	// e.g: "mybucket/etcd.backup"
 	Path string `json:"path"`
 
 	// The name of the secret object that stores the AWS credential and config files.
@@ -65,6 +81,20 @@ type S3RestoreSource struct {
 	//
 	// AWSSecret overwrites the default etcd operator wide AWS credential and config.
 	AWSSecret string `json:"awsSecret"`
+
+	// Endpoint if blank points to aws. If specified, can point to s3 compatible object
+	// stores.
+	Endpoint string `json:"endpoint"`
+}
+
+type ABSRestoreSource struct {
+	// Path is the full abs path where the backup is saved.
+	// The format of the path must be: "<abs-container-name>/<path-to-backup-file>"
+	// e.g: "myabscontainer/etcd.backup"
+	Path string `json:"path"`
+
+	// The name of the secret object that stores the Azure Blob Storage credential.
+	ABSSecret string `json:"absSecret"`
 }
 
 // RestoreStatus reports the status of this restore operation.

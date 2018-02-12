@@ -93,7 +93,6 @@ func (c *Cluster) reconcileMembers(running etcdutil.MemberSet) error {
 	}
 
 	if L.Size() < c.members.Size()/2+1 {
-		c.logger.Infof("lost quorum")
 		return ErrLostQuorum
 	}
 
@@ -108,10 +107,6 @@ func (c *Cluster) resize() error {
 	}
 
 	if c.members.Size() < c.cluster.Spec.Size {
-		if c.cluster.Spec.SelfHosted != nil {
-			return c.addOneSelfHostedMember()
-		}
-
 		return c.addOneMember()
 	}
 
@@ -132,7 +127,7 @@ func (c *Cluster) addOneMember() error {
 	}
 	defer etcdcli.Close()
 
-	newMember := c.newMember(c.memberCounter)
+	newMember := c.newMember()
 	ctx, cancel := context.WithTimeout(context.Background(), constants.DefaultRequestTimeout)
 	resp, err := etcdcli.MemberAdd(ctx, []string{newMember.PeerURL()})
 	cancel()
@@ -145,7 +140,6 @@ func (c *Cluster) addOneMember() error {
 	if err := c.createPod(c.members, newMember, "existing"); err != nil {
 		return fmt.Errorf("fail to create member's pod (%s): %v", newMember.Name, err)
 	}
-	c.memberCounter++
 	c.logger.Infof("added member (%s)", newMember.Name)
 	_, err = c.eventsCli.Create(k8sutil.NewMemberAddEvent(newMember.Name, c.cluster))
 	if err != nil {
@@ -161,29 +155,6 @@ func (c *Cluster) removeOneMember() error {
 }
 
 func (c *Cluster) removeDeadMember(toRemove *etcdutil.Member) error {
-	if c.cluster.Spec.SelfHosted != nil {
-		selectedNodes, err := c.selectSchedulableNodes()
-		if err != nil {
-			return err
-		}
-
-		// If we do not have enough master nodes, we should simply wait for the old node
-		// to be online again.
-		//
-		// Removing the etcd member will not help us to recover the cluster to the desired
-		// number of members, since we do not have enough master nodes for self hosted etcd.
-		//
-		// Instead, there is a large chance that the old node is taken offline for maintenance
-		// or experiencing temporary network partition. When it comes back, it will recover itself
-		// since we persist data for self hosted case.
-
-		if nodeNum := len(selectedNodes); nodeNum < c.cluster.Spec.Size {
-			c.logger.Warningf("ignored removing failed member (%s). Not enough master nodes (%v) to recover, want at least %d", toRemove.Name, selectedNodes, c.cluster.Spec.Size)
-			c.logger.Infof("waiting for the failed master node to recover, or more master nodes")
-			return nil
-		}
-	}
-
 	c.logger.Infof("removing dead member %q", toRemove.Name)
 	_, err := c.eventsCli.Create(k8sutil.ReplacingDeadMemberEvent(toRemove.Name, c.cluster))
 	if err != nil {
@@ -193,14 +164,19 @@ func (c *Cluster) removeDeadMember(toRemove *etcdutil.Member) error {
 	return c.removeMember(toRemove)
 }
 
-func (c *Cluster) removeMember(toRemove *etcdutil.Member) error {
-	err := etcdutil.RemoveMember(c.members.ClientURLs(), c.tlsConfig, toRemove.ID)
+func (c *Cluster) removeMember(toRemove *etcdutil.Member) (err error) {
+	defer func() {
+		if err != nil {
+			err = fmt.Errorf("remove member (%s) failed: %v", toRemove.Name, err)
+		}
+	}()
+
+	err = etcdutil.RemoveMember(c.members.ClientURLs(), c.tlsConfig, toRemove.ID)
 	if err != nil {
 		switch err {
 		case rpctypes.ErrMemberNotFound:
 			c.logger.Infof("etcd member (%v) has been removed", toRemove.Name)
 		default:
-			c.logger.Errorf("fail to remove etcd member (%v): %v", toRemove.Name, err)
 			return err
 		}
 	}
@@ -212,7 +188,21 @@ func (c *Cluster) removeMember(toRemove *etcdutil.Member) error {
 	if err := c.removePod(toRemove.Name); err != nil {
 		return err
 	}
+	if c.isPodPVEnabled() {
+		err = c.removePVC(k8sutil.PVCNameFromMember(toRemove.Name))
+		if err != nil {
+			return err
+		}
+	}
 	c.logger.Infof("removed member (%v) with ID (%d)", toRemove.Name, toRemove.ID)
+	return nil
+}
+
+func (c *Cluster) removePVC(pvcName string) error {
+	err := c.config.KubeCli.Core().PersistentVolumeClaims(c.cluster.Namespace).Delete(pvcName, nil)
+	if err != nil && !k8sutil.IsKubernetesResourceNotFoundError(err) {
+		return fmt.Errorf("remove pvc (%s) failed: %v", pvcName, err)
+	}
 	return nil
 }
 

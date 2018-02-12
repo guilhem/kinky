@@ -36,7 +36,7 @@ func NewCluster(genName string, size int) *api.EtcdCluster {
 }
 
 // NewS3Backup creates a EtcdBackup object using clusterName.
-func NewS3Backup(clusterName, bucket, secret, clientTLSSecret string) *api.EtcdBackup {
+func NewS3Backup(endpoints []string, clusterName, path, secret, clientTLSSecret string) *api.EtcdBackup {
 	return &api.EtcdBackup{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       api.EtcdBackupResourceKind,
@@ -46,12 +46,12 @@ func NewS3Backup(clusterName, bucket, secret, clientTLSSecret string) *api.EtcdB
 			GenerateName: clusterName,
 		},
 		Spec: api.BackupSpec{
-			ClusterName:     clusterName,
+			EtcdEndpoints:   endpoints,
 			StorageType:     api.BackupStorageTypeS3,
 			ClientTLSSecret: clientTLSSecret,
-			BackupStorageSource: api.BackupStorageSource{
-				S3: &api.S3Source{
-					S3Bucket:  bucket,
+			BackupSource: api.BackupSource{
+				S3: &api.S3BackupSource{
+					Path:      path,
 					AWSSecret: secret,
 				},
 			},
@@ -68,37 +68,22 @@ func NewS3RestoreSource(path, awsSecret string) *api.S3RestoreSource {
 }
 
 // NewEtcdRestore returns an EtcdRestore CR with the specified RestoreSource
-func NewEtcdRestore(restoreName string, size int, restoreSource api.RestoreSource) *api.EtcdRestore {
+func NewEtcdRestore(clusterName string, size int, restoreSource api.RestoreSource, backupStorageType api.BackupStorageType) *api.EtcdRestore {
 	return &api.EtcdRestore{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       api.EtcdRestoreResourceKind,
 			APIVersion: api.SchemeGroupVersion.String(),
 		},
+		// The EtcdRestore CR name must be the same as the EtcdClusterRef name
 		ObjectMeta: metav1.ObjectMeta{
-			GenerateName: restoreName,
+			Name: clusterName,
 		},
 		Spec: api.RestoreSpec{
-			ClusterSpec: api.ClusterSpec{
-				Repository: "quay.io/coreos/etcd",
-				Size:       size,
+			EtcdCluster: api.EtcdClusterRef{
+				Name: clusterName,
 			},
-			RestoreSource: restoreSource,
-		},
-	}
-}
-
-// RestoreCRWithTLS attaches StaticTLS to its ClusterSpec.
-func RestoreCRWithTLS(er *api.EtcdRestore, memberPeerTLSSecret, memberServerTLSSecret, operatorClientTLSSecret string) {
-	if er == nil {
-		return
-	}
-	er.Spec.ClusterSpec.TLS = &api.TLSPolicy{
-		Static: &api.StaticTLS{
-			Member: &api.MemberSecret{
-				PeerSecret:   memberPeerTLSSecret,
-				ServerSecret: memberServerTLSSecret,
-			},
-			OperatorSecret: operatorClientTLSSecret,
+			BackupStorageType: backupStorageType,
+			RestoreSource:     restoreSource,
 		},
 	}
 }
@@ -118,11 +103,6 @@ func ClusterCRWithTLS(cl *api.EtcdCluster, memberPeerTLSSecret, memberServerTLSS
 
 func ClusterWithVersion(cl *api.EtcdCluster, version string) *api.EtcdCluster {
 	cl.Spec.Version = version
-	return cl
-}
-
-func ClusterWithSelfHosted(cl *api.EtcdCluster, sh *api.SelfHostedPolicy) *api.EtcdCluster {
-	cl.Spec.SelfHosted = sh
 	return cl
 }
 

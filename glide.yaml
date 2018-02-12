@@ -9,16 +9,16 @@ import:
   - pkg/util/constants
 - package: github.com/golang/glog
 - package: k8s.io/api
-  version: release-1.8
+  version: release-1.9
   subpackages:
   - apps/v1beta1
   - core/v1
 - package: k8s.io/apiextensions-apiserver
-  version: release-1.8
+  version: release-1.9
   subpackages:
   - pkg/client/clientset/clientset
 - package: k8s.io/apimachinery
-  version: release-1.8
+  version: release-1.9
   subpackages:
   - pkg/api/errors
   - pkg/apis/meta/v1
@@ -31,7 +31,7 @@ import:
   - pkg/types
   - pkg/watch
 - package: k8s.io/client-go
-  version: ~5.0.1
+  version: release-6.0
   subpackages:
   - discovery
   - discovery/fake
@@ -43,7 +43,7 @@ import:
   - util/cert
   - util/flowcontrol
 - package: k8s.io/kubernetes
-  version: release-1.8
+  version: release-1.9
   subpackages:
   - cmd/kubeadm/app/apis/kubeadm
   - cmd/kubeadm/app/constants
@@ -53,7 +53,7 @@ import:
   - cmd/kubeadm/app/util/apiclient
   - cmd/kubeadm/app/util/config
 - package: k8s.io/code-generator
-  version: release-1.8
+  version: release-1.9
   subpackages:
   - cmd/defaulter-gen
   - cmd/client-gen
@@ -61,8 +61,8 @@ import:
   - cmd/informer-gen
   - cmd/deepcopy-gen
 - package: k8s.io/gengo
-  version: 9e661e9308f078838e266cca1c673922088c0ea4
-- package: github.com/prometheus/client_golang
-  version: ~v0.8.0
-  subpackages:
-  - prometheus
+  # version: 9e661e9308f078838e266cca1c673922088c0ea4
+# - package: github.com/prometheus/client_golang
+#   version: ~v0.8.0
+#   subpackages:
+#   - prometheus

@@ -16,6 +16,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"os"
 	"runtime"
 	"time"
@@ -23,7 +24,7 @@ import (
 	controller "github.com/coreos/etcd-operator/pkg/controller/backup-operator"
 	"github.com/coreos/etcd-operator/pkg/util/constants"
 	"github.com/coreos/etcd-operator/pkg/util/k8sutil"
-	version "github.com/coreos/etcd-operator/version/backup-operator"
+	version "github.com/coreos/etcd-operator/version"
 
 	"github.com/sirupsen/logrus"
 	"k8s.io/api/core/v1"
@@ -34,6 +35,15 @@ import (
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	"k8s.io/client-go/tools/record"
 )
+
+var (
+	createCRD bool
+)
+
+func init() {
+	flag.BoolVar(&createCRD, "create-crd", true, "The backup operator will not create the EtcdBackup CRD when this flag is set to false.")
+	flag.Parse()
+}
 
 func main() {
 	namespace := os.Getenv(constants.EnvOperatorPodNamespace)
@@ -91,7 +101,7 @@ func createRecorder(kubecli kubernetes.Interface, name, namespace string) record
 }
 
 func run(stop <-chan struct{}) {
-	c := controller.New()
+	c := controller.New(createCRD)
 	err := c.Start(context.TODO())
 	if err != nil {
 		logrus.Fatalf("operator stopped with error: %v", err)

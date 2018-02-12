@@ -23,8 +23,8 @@ import (
 )
 
 const (
-	defaultRepository = "quay.io/coreos/etcd"
-	defaultVersion    = "3.2.11"
+	defaultRepository  = "quay.io/coreos/etcd"
+	DefaultEtcdVersion = "3.2.13"
 )
 
 var (
@@ -78,18 +78,15 @@ type ClusterSpec struct {
 	//
 	// By default, it is `quay.io/coreos/etcd`.
 	Repository string `json:"repository,omitempty"`
-	// **DEPRECATED**. Use Repository instead.
-	// TODO: remove this field in v0.7.2 .
-	BaseImage string `json:"baseImage,omitempty"`
 
 	// Version is the expected version of the etcd cluster.
 	// The etcd-operator will eventually make the etcd cluster version
 	// equal to the expected version.
 	//
-	// The version must follow the [semver]( http://semver.org) format, for example "3.2.11".
+	// The version must follow the [semver]( http://semver.org) format, for example "3.2.13".
 	// Only etcd released versions are supported: https://github.com/coreos/etcd/releases
 	//
-	// If version is not set, default is "3.2.11".
+	// If version is not set, default is "3.2.13".
 	Version string `json:"version,omitempty"`
 
 	// Paused is to pause the control of the operator for the etcd cluster.
@@ -99,12 +96,6 @@ type ClusterSpec struct {
 	//
 	// Updating Pod does not take effect on any existing etcd pods.
 	Pod *PodPolicy `json:"pod,omitempty"`
-
-	// SelfHosted determines if the etcd cluster is used for a self-hosted
-	// Kubernetes cluster.
-	//
-	// SelfHosted is a cluster initialization configuration. It cannot be updated.
-	SelfHosted *SelfHostedPolicy `json:"selfHosted,omitempty"`
 
 	// etcd cluster TLS configuration
 	TLS *TLSPolicy `json:"TLS,omitempty"`
@@ -141,8 +132,20 @@ type PodPolicy struct {
 	// bootstrap the cluster (for example `--initial-cluster` flag).
 	// This field cannot be updated.
 	EtcdEnv []v1.EnvVar `json:"etcdEnv,omitempty"`
+
+	// PersistentVolumeClaimSpec is the spec to describe PVC for the etcd container
+	// This field is optional. If no PVC spec, etcd container will use emptyDir as volume
+	// Note. This feature is in alpha stage. It is currently only used as non-stable storage,
+	// not the stable storage. Future work need to make it used as stable storage.
+	PersistentVolumeClaimSpec *v1.PersistentVolumeClaimSpec `json:"persistentVolumeClaimSpec,omitempty"`
+
+	// Annotations specifies the annotations to attach to pods the operator creates for the
+	// etcd cluster.
+	// The "etcd.version" annotation is reserved for the internal use of the etcd operator.
+	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
+// TODO: move this to initializer
 func (c *ClusterSpec) Validate() error {
 	if c.TLS != nil {
 		if err := c.TLS.Validate(); err != nil {
@@ -161,19 +164,15 @@ func (c *ClusterSpec) Validate() error {
 }
 
 // SetDefaults cleans up user passed spec, e.g. defaulting, transforming fields.
-// TODO: move this to admission controller
+// TODO: move this to initializer
 func (e *EtcdCluster) SetDefaults() {
 	c := &e.Spec
 	if len(c.Repository) == 0 {
-		if len(c.BaseImage) != 0 {
-			c.Repository = c.BaseImage
-		} else {
-			c.Repository = defaultRepository
-		}
+		c.Repository = defaultRepository
 	}
 
 	if len(c.Version) == 0 {
-		c.Version = defaultVersion
+		c.Version = DefaultEtcdVersion
 	}
 
 	c.Version = strings.TrimLeft(c.Version, "v")

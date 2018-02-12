@@ -16,6 +16,8 @@ package main
 
 import (
 	"context"
+	"flag"
+	"fmt"
 	"os"
 	"runtime"
 	"time"
@@ -23,7 +25,7 @@ import (
 	controller "github.com/coreos/etcd-operator/pkg/controller/restore-operator"
 	"github.com/coreos/etcd-operator/pkg/util/constants"
 	"github.com/coreos/etcd-operator/pkg/util/k8sutil"
-	version "github.com/coreos/etcd-operator/version/restore-operator"
+	version "github.com/coreos/etcd-operator/version"
 
 	"github.com/sirupsen/logrus"
 	"k8s.io/api/core/v1"
@@ -37,10 +39,18 @@ import (
 
 var (
 	namespace string
-	// This is the address of k8s service to restore operator itself for accessing
-	// backup HTTP endpoints. For example, "restore-operator:19999"
-	serviceAddrForSelf string
+	createCRD bool
 )
+
+const (
+	serviceNameForMyself = "etcd-restore-operator"
+	servicePortForMyself = 19999
+)
+
+func init() {
+	flag.BoolVar(&createCRD, "create-crd", true, "The restore operator will not create the EtcdRestore CRD when this flag is set to false.")
+	flag.Parse()
+}
 
 func main() {
 	namespace = os.Getenv(constants.EnvOperatorPodNamespace)
@@ -50,10 +60,6 @@ func main() {
 	name := os.Getenv(constants.EnvOperatorPodName)
 	if len(name) == 0 {
 		logrus.Fatalf("must set env %s", constants.EnvOperatorPodName)
-	}
-	serviceAddrForSelf = os.Getenv(constants.EnvRestoreOperatorServiceName)
-	if len(serviceAddrForSelf) == 0 {
-		logrus.Fatalf("must set env %s", constants.EnvRestoreOperatorServiceName)
 	}
 	id, err := os.Hostname()
 	if err != nil {
@@ -66,6 +72,12 @@ func main() {
 	logrus.Infof("Git SHA: %s", version.GitSHA)
 
 	kubecli := k8sutil.MustNewKubeClient()
+
+	err = createServiceForMyself(kubecli, name, namespace)
+	if err != nil {
+		logrus.Fatalf("create service failed: %+v", err)
+	}
+
 	rl, err := resourcelock.New(
 		resourcelock.EndpointsResourceLock,
 		namespace,
@@ -102,7 +114,7 @@ func createRecorder(kubecli kubernetes.Interface, name, namespace string) record
 }
 
 func run(stop <-chan struct{}) {
-	c := controller.New(namespace, serviceAddrForSelf)
+	c := controller.New(createCRD, namespace, fmt.Sprintf("%s:%d", serviceNameForMyself, servicePortForMyself))
 	err := c.Start(context.TODO())
 	if err != nil {
 		logrus.Fatalf("etcd restore operator stopped with error: %v", err)

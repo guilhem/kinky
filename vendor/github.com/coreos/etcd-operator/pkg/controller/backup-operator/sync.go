@@ -15,7 +15,12 @@
 package controller
 
 import (
+	"context"
+	"errors"
+	"time"
+
 	api "github.com/coreos/etcd-operator/pkg/apis/etcd/v1beta2"
+	"github.com/coreos/etcd-operator/pkg/util/constants"
 
 	"github.com/sirupsen/logrus"
 )
@@ -72,13 +77,14 @@ func (b *Backup) processItem(key string) error {
 	return err
 }
 
-func (b *Backup) reportBackupStatus(bs *api.BackupCRStatus, berr error, eb *api.EtcdBackup) {
+func (b *Backup) reportBackupStatus(bs *api.BackupStatus, berr error, eb *api.EtcdBackup) {
 	if berr != nil {
 		eb.Status.Succeeded = false
 		eb.Status.Reason = berr.Error()
 	} else {
 		eb.Status.Succeeded = true
-		eb.Status.S3Path = bs.S3Path
+		eb.Status.EtcdRevision = bs.EtcdRevision
+		eb.Status.EtcdVersion = bs.EtcdVersion
 	}
 	_, err := b.backupCRCli.EtcdV1beta2().EtcdBackups(b.namespace).Update(eb)
 	if err != nil {
@@ -110,16 +116,43 @@ func (b *Backup) handleErr(err error, key interface{}) {
 	b.logger.Infof("Dropping etcd backup (%v) out of the queue: %v", key, err)
 }
 
-func (b *Backup) handleBackup(spec *api.BackupSpec) (*api.BackupCRStatus, error) {
+func (b *Backup) handleBackup(spec *api.BackupSpec) (*api.BackupStatus, error) {
+	err := validate(spec)
+	if err != nil {
+		return nil, err
+	}
+
+	// When BackupPolicy.TimeoutInSecond <= 0, use default DefaultBackupTimeout.
+	backupTimeout := time.Duration(constants.DefaultBackupTimeout)
+	if spec.BackupPolicy != nil && spec.BackupPolicy.TimeoutInSecond > 0 {
+		backupTimeout = time.Duration(spec.BackupPolicy.TimeoutInSecond) * time.Second
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), backupTimeout)
+	defer cancel()
 	switch spec.StorageType {
 	case api.BackupStorageTypeS3:
-		s3path, err := handleS3(b.kubecli, spec.S3, spec.ClientTLSSecret, b.namespace, spec.ClusterName)
+		bs, err := handleS3(ctx, b.kubecli, spec.S3, spec.EtcdEndpoints, spec.ClientTLSSecret, b.namespace)
 		if err != nil {
 			return nil, err
 		}
-		return &api.BackupCRStatus{S3Path: s3path}, nil
+		return bs, nil
+	case api.BackupStorageTypeABS:
+		bs, err := handleABS(ctx, b.kubecli, spec.ABS, spec.EtcdEndpoints, spec.ClientTLSSecret, b.namespace)
+		if err != nil {
+			return nil, err
+		}
+		return bs, nil
 	default:
 		logrus.Fatalf("unknown StorageType: %v", spec.StorageType)
 	}
 	return nil, nil
+}
+
+// TODO: move this to initializer
+func validate(spec *api.BackupSpec) error {
+	if len(spec.EtcdEndpoints) == 0 {
+		return errors.New("spec.etcdEndpoints should not be empty")
+	}
+	return nil
 }

@@ -70,14 +70,23 @@ func (r *Restore) processItem(key string) error {
 }
 
 // handleCR takes in EtcdRestore CR and prepares the seed so that etcd operator can take over it later.
-func (r *Restore) handleCR(er *api.EtcdRestore, key string) error {
+func (r *Restore) handleCR(er *api.EtcdRestore, key string) (err error) {
 	// don't process the CR if it has a status since
 	// having a status means that the restore is either made or failed.
 	if er.Status.Succeeded || len(er.Status.Reason) != 0 {
 		return nil
 	}
-	err := r.prepareSeed(er)
-	r.reportStatus(err, er)
+
+	defer r.reportStatus(err, er)
+	// NOTE: Since the restore EtcdCluster is created with the same name as the EtcdClusterRef,
+	// the seed member will send a request of the form /backup/<cluster-name> to the backup server.
+	// The EtcdRestore CR name must be the same as the EtcdCluster name in order for the backup server
+	// to successfully lookup the EtcdRestore CR associated with this <cluster-name>.
+	if er.Name != er.Spec.EtcdCluster.Name {
+		err = fmt.Errorf("failed to handle restore CR: EtcdRestore CR name(%v) must be the same as EtcdCluster name(%v)", er.Name, er.Spec.EtcdCluster.Name)
+		return err
+	}
+	err = r.prepareSeed(er)
 	return err
 }
 
@@ -118,8 +127,10 @@ func (r *Restore) handleErr(err error, key interface{}) {
 	r.logger.Infof("dropping restore request (%v) out of the queue: %v", key, err)
 }
 
-// prepareSeed creates:
-// - create EtcdCluster CR but spec.paused=true and status.phase="Running"
+// prepareSeed does the following:
+// - fetches and deletes the reference EtcdCluster CR
+// - creates new EtcdCluster CR with same metadata and spec as the reference CR
+// - and spec.paused=true and status.phase="Running"
 //  - spec.paused=true: keep operator from touching membership
 // 	- status.phase=Running:
 //  	1. expect operator to setup the services
@@ -134,25 +145,48 @@ func (r *Restore) prepareSeed(er *api.EtcdRestore) (err error) {
 			err = fmt.Errorf("prepare seed failed: %v", err)
 		}
 	}()
-	cs := er.Spec.ClusterSpec
-	if err := cs.Validate(); err != nil {
+
+	// Fetch the reference EtcdCluster
+	ecRef := er.Spec.EtcdCluster
+	ec, err := r.etcdCRCli.EtcdV1beta2().EtcdClusters(r.namespace).Get(ecRef.Name, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get reference EtcdCluster(%s/%s): %v", r.namespace, ecRef.Name, err)
+	}
+	if err := ec.Spec.Validate(); err != nil {
 		return fmt.Errorf("invalid cluster spec: %v", err)
 	}
-	// Use the restore CR's name as the name of the etcd cluster being restored
-	clusterName := er.Name
-	ec := &api.EtcdCluster{
-		ObjectMeta: metav1.ObjectMeta{Name: clusterName},
-		Spec:       cs,
+
+	// Delete reference EtcdCluster
+	err = r.etcdCRCli.EtcdV1beta2().EtcdClusters(r.namespace).Delete(ecRef.Name, &metav1.DeleteOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to delete reference EtcdCluster (%s/%s): %v", r.namespace, ecRef.Name, err)
+	}
+	// Need to delete etcd pods, etc. completely before creating new cluster.
+	r.deleteClusterResourcesCompletely(ecRef.Name)
+
+	// Create the restored EtcdCluster with the same metadata and spec as reference EtcdCluster
+	clusterName := ecRef.Name
+	ec = &api.EtcdCluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            clusterName,
+			Labels:          ec.ObjectMeta.Labels,
+			Annotations:     ec.ObjectMeta.Annotations,
+			OwnerReferences: ec.ObjectMeta.OwnerReferences,
+		},
+		Spec: ec.Spec,
 	}
 
 	ec.Spec.Paused = true
 	ec.Status.Phase = api.ClusterPhaseRunning
 	ec, err = r.etcdCRCli.EtcdV1beta2().EtcdClusters(r.namespace).Create(ec)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create restored EtcdCluster (%s/%s): %v", r.namespace, clusterName, err)
 	}
 
-	r.createSeedMember(ec, r.mySvcAddr, clusterName, ec.AsOwner())
+	err = r.createSeedMember(ec, r.mySvcAddr, clusterName, ec.AsOwner())
+	if err != nil {
+		return fmt.Errorf("failed to create seed member for cluster (%s): %v", clusterName, err)
+	}
 
 	// Retry updating the etcdcluster CR spec.paused=false. The etcd-operator will update the CR once so there needs to be a single retry in case of conflict
 	err = retryutil.Retry(2, 1, func() (bool, error) {
@@ -178,7 +212,7 @@ func (r *Restore) prepareSeed(er *api.EtcdRestore) (err error) {
 
 func (r *Restore) createSeedMember(ec *api.EtcdCluster, svcAddr, clusterName string, owner metav1.OwnerReference) error {
 	m := &etcdutil.Member{
-		Name:         etcdutil.CreateMemberName(clusterName, 0),
+		Name:         k8sutil.UniqueMemberName(clusterName),
 		Namespace:    r.namespace,
 		SecurePeer:   ec.Spec.TLS.IsSecurePeer(),
 		SecureClient: ec.Spec.TLS.IsSecureClient(),
@@ -189,4 +223,18 @@ func (r *Restore) createSeedMember(ec *api.EtcdCluster, svcAddr, clusterName str
 	pod := k8sutil.NewSeedMemberPod(clusterName, ms, m, ec.Spec, owner, backupURL)
 	_, err := r.kubecli.Core().Pods(r.namespace).Create(pod)
 	return err
+}
+
+func (r *Restore) deleteClusterResourcesCompletely(clusterName string) error {
+	// Delete etcd pods
+	err := r.kubecli.Core().Pods(r.namespace).DeleteCollection(metav1.NewDeleteOptions(0), k8sutil.ClusterListOpt(clusterName))
+	if err != nil && !k8sutil.IsKubernetesResourceNotFoundError(err) {
+		return fmt.Errorf("failed to delete cluster pods: %v", err)
+	}
+
+	err = r.kubecli.Core().Services(r.namespace).DeleteCollection(metav1.NewDeleteOptions(0), k8sutil.ClusterListOpt(clusterName))
+	if err != nil && !k8sutil.IsKubernetesResourceNotFoundError(err) {
+		return fmt.Errorf("failed to delete cluster services: %v", err)
+	}
+	return nil
 }

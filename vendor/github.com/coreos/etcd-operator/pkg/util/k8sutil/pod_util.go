@@ -57,8 +57,9 @@ func etcdContainer(cmd []string, repo, version string) v1.Container {
 	return c
 }
 
-func containerWithLivenessProbe(c v1.Container, lp *v1.Probe) v1.Container {
+func containerWithProbes(c v1.Container, lp *v1.Probe, rp *v1.Probe) v1.Container {
 	c.LivenessProbe = lp
+	c.ReadinessProbe = rp
 	return c
 }
 
@@ -67,7 +68,7 @@ func containerWithRequirements(c v1.Container, r v1.ResourceRequirements) v1.Con
 	return c
 }
 
-func etcdLivenessProbe(isSecure bool) *v1.Probe {
+func newEtcdProbe(isSecure bool) *v1.Probe {
 	// etcd pod is alive only if a linearizable get succeeds.
 	cmd := "ETCDCTL_API=3 etcdctl get foo"
 	if isSecure {
@@ -106,9 +107,18 @@ func applyPodPolicy(clusterName string, pod *v1.Pod, policy *api.PodPolicy) {
 	mergeLabels(pod.Labels, policy.Labels)
 
 	for i := range pod.Spec.Containers {
+		pod.Spec.Containers[i] = containerWithRequirements(pod.Spec.Containers[i], policy.Resources)
 		if pod.Spec.Containers[i].Name == "etcd" {
 			pod.Spec.Containers[i].Env = append(pod.Spec.Containers[i].Env, policy.EtcdEnv...)
 		}
+	}
+
+	for i := range pod.Spec.InitContainers {
+		pod.Spec.InitContainers[i] = containerWithRequirements(pod.Spec.InitContainers[i], policy.Resources)
+	}
+
+	for key, value := range policy.Annotations {
+		pod.ObjectMeta.Annotations[key] = value
 	}
 }
 

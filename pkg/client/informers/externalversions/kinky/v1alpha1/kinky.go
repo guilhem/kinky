@@ -1,5 +1,5 @@
 /*
-Copyright 2017 The Openshift Evangelists
+Copyright 2018 The Openshift Evangelists
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -38,19 +38,34 @@ type KinkyInformer interface {
 }
 
 type kinkyInformer struct {
-	factory internalinterfaces.SharedInformerFactory
+	factory          internalinterfaces.SharedInformerFactory
+	tweakListOptions internalinterfaces.TweakListOptionsFunc
+	namespace        string
 }
 
 // NewKinkyInformer constructs a new informer for Kinky type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
 func NewKinkyInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
+	return NewFilteredKinkyInformer(client, namespace, resyncPeriod, indexers, nil)
+}
+
+// NewFilteredKinkyInformer constructs a new informer for Kinky type.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewFilteredKinkyInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
 	return cache.NewSharedIndexInformer(
 		&cache.ListWatch{
 			ListFunc: func(options v1.ListOptions) (runtime.Object, error) {
+				if tweakListOptions != nil {
+					tweakListOptions(&options)
+				}
 				return client.KinkyV1alpha1().Kinkies(namespace).List(options)
 			},
 			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
+				if tweakListOptions != nil {
+					tweakListOptions(&options)
+				}
 				return client.KinkyV1alpha1().Kinkies(namespace).Watch(options)
 			},
 		},
@@ -60,12 +75,12 @@ func NewKinkyInformer(client versioned.Interface, namespace string, resyncPeriod
 	)
 }
 
-func defaultKinkyInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewKinkyInformer(client, v1.NamespaceAll, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc})
+func (f *kinkyInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
+	return NewFilteredKinkyInformer(client, f.namespace, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
 }
 
 func (f *kinkyInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&kinky_v1alpha1.Kinky{}, defaultKinkyInformer)
+	return f.factory.InformerFor(&kinky_v1alpha1.Kinky{}, f.defaultInformer)
 }
 
 func (f *kinkyInformer) Lister() v1alpha1.KinkyLister {

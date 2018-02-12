@@ -1,5 +1,5 @@
 /*
-Copyright 2017 The Openshift Evangelists
+Copyright 2018 The Openshift Evangelists
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -51,7 +51,7 @@ func (f *genericInformer) Lister() cache.GenericLister {
 // TODO extend this to unknown resources with a client pool
 func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource) (GenericInformer, error) {
 	switch resource {
-	// Group=Kinky, Version=V1alpha1
+	// Group=kinky, Version=v1alpha1
 	case v1alpha1.SchemeGroupVersion.WithResource("kinkies"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Kinky().V1alpha1().Kinkies().Informer()}, nil
 

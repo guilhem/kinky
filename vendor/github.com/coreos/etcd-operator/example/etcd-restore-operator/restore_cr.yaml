@@ -1,15 +1,15 @@
 apiVersion: "etcd.database.coreos.com/v1beta2"
 kind: "EtcdRestore"
 metadata:
-  # An EtcdCluster with the same name will be created
-  name: restored-etcd-cluster
+  # The restore CR name must be the same as spec.etcdCluster.name
+  name: example-etcd-cluster
 spec:
-  clusterSpec:
-    size: 3
-    version: 3.2.11
-    repository: "gcr.io/etcd-development/etcd"
+  etcdCluster:
+    # The namespace is the same as this EtcdRestore CR
+    name: example-etcd-cluster
+  backupStorageType: S3
   s3:
     # The format of "path" must be: "<s3-bucket-name>/<path-to-backup-file>"
-    # e.g: "etcd-snapshot-bucket/v1/default/example-etcd-cluster/3.2.11_0000000000000001_etcd.backup"
+    # e.g: "mybucket/etcd.backup"
     path: <full-s3-path>
     awsSecret: <aws-secret>

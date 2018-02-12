@@ -12,6 +12,110 @@
 
 ### Security
 
+## [Release 0.9.0]
+
+Same as v0.8.4. The version is bumping to 0.9.0 due to adding a new ABS backup API into etcd-backup-operator.
+
+## [Release 0.8.4]
+
+### Added
+
+- Added ABS support for backup and restore
+- Added tag to initContainer to enable offline deploys
+- Enabled configurable backup timeout in backup operator 
+
+### Changed
+
+- Set 30s default request timeout for kube client
+- Change check-dns init container image to busybox:1.28.0-glibc to fix nslookup failure in some environment.  
+
+### Removed
+
+- Removed self-hosted code
+
+## [Release 0.8.3]
+
+### Added
+
+- Added the option to use PersistentVolume as non-stable storage for etcd pods. This feature is still alpha and subject to change in future releases [#1861](https://github.com/coreos/etcd-operator/pull/1861)
+
+### Changed
+
+- Changed etcd pod member names to be unique by having a random suffix instead of a sequence number. This change is backward compatible and should not affect operator upgrade.
+    Previously the etcd pod names would look like:
+    ```
+    NAME                            READY     STATUS    RESTARTS   AGE
+    example-etcd-cluster-0000       1/1       Running   0          1m
+    example-etcd-cluster-0001       1/1       Running   0          1m
+    example-etcd-cluster-0002       1/1       Running   0          1m
+    ```
+    After this change:
+    ```
+    NAME                                  READY     STATUS    RESTARTS   AGE
+    example-etcd-cluster-2885zjw9he       1/1       Running   0          1m
+    example-etcd-cluster-gghrmbeid4       1/1       Running   0          1m
+    example-etcd-cluster-w5q9sn37fd       1/1       Running   0          1m
+    ```
+
+### Fixed
+
+- Fixed a bug where the restore operator would fail to restore the seed member because recreating an etcd pod with the same name as a recently deleted one would conflict as the older pod and its resources, like the DNS name, might still not be deleted. [#1825](https://github.com/coreos/etcd-operator/issues/1825)
+
+
+## [Release 0.8.2]
+
+### Added
+
+- Add support for backup and restore from custom S3 endpoint.
+
+### Changed
+
+- All etcd pod containers now run as non-root.
+
+
+## [Release 0.8.1]
+
+### Changed
+
+- etcd-restore-operator will create a service for itself as the backup storage proxy. Delete the service in deployment yaml.
+
+### Fixed
+
+- Fix etcd-restore-operator wouldn't report error and keep looping if EtcdRestore name is different than EtcdCluster name.
+
+
+## [Release 0.8.0]
+
+**Important Changes** 
+
+Both etcd backup operator and etcd restore operator have changed their CR definition.
+Please follow the latest backup/restore CR definition for future backup and restore.
+
+### Added
+
+- Add readiness probe to etcd pod. The readiness state will be reflected on `status.members.ready/unready`.
+- TLS etcd cluster support in backup/restore-operator.
+- Add spec validation in restore operator.
+- Add BackupStorageType to EtcdRestore.RestoreSpec to indicate type of the backup storage which is used as RestoreSource and validation of BackupStorageType in restore operator.
+- Add EtcdClusterRef to EtcdRestore.RestoreSpec to reference an EtcdCluster resource whose metadata and spec will be used to create the new restored EtcdCluster CR.
+- Add create-crd flag to etcd backup operator allowing user to disable automatic backup CRD creation.
+- Add create-crd flag to etcd restore operator allowing user to disable automatic restore CRD creation.
+- Add EtcdVersion and EtcdRevision to EtcdBackup.BackupStatus.
+- BackupStatus: Add detailed error when backup fails.
+
+### Changed
+
+- Rename BackupCRStatus to BackupStatus.
+- EtcdBackup: BackupSpec passes in S3BackupSource.Path as the S3 path to save the backup.
+- EtcdBackup: BackupSpec spec uses etcd endpoints to retrieve snapshot.
+- Change default etcd version to `3.2.13`.
+
+### Removed
+
+- EtcdBackup: BackupSpec removed ClusterName field in favor of etcd endpoints.
+- EtcdCluster: ClusterSpec removed deprecated BaseImage field.
+
+
 ## [Release 0.7.2]
 
 > Note: This is a bug fix release.

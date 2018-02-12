@@ -24,9 +24,7 @@ import (
 	"time"
 
 	api "github.com/coreos/etcd-operator/pkg/apis/etcd/v1beta2"
-	"github.com/coreos/etcd-operator/pkg/debug"
 	"github.com/coreos/etcd-operator/pkg/generated/clientset/versioned"
-	"github.com/coreos/etcd-operator/pkg/util"
 	"github.com/coreos/etcd-operator/pkg/util/etcdutil"
 	"github.com/coreos/etcd-operator/pkg/util/k8sutil"
 	"github.com/coreos/etcd-operator/pkg/util/retryutil"
@@ -65,8 +63,6 @@ type Config struct {
 
 type Cluster struct {
 	logger *logrus.Entry
-	// debug logger for self hosted cluster
-	debugLogger *debug.DebugLogger
 
 	config Config
 
@@ -74,8 +70,7 @@ type Cluster struct {
 
 	// in memory state of the cluster
 	// status is the source of truth after Cluster struct is materialized.
-	status        api.ClusterStatus
-	memberCounter int
+	status api.ClusterStatus
 
 	eventCh chan *clusterEvent
 	stopCh  chan struct{}
@@ -92,20 +87,15 @@ type Cluster struct {
 
 func New(config Config, cl *api.EtcdCluster) *Cluster {
 	lg := logrus.WithField("pkg", "cluster").WithField("cluster-name", cl.Name)
-	var debugLogger *debug.DebugLogger
-	if cl.Spec.SelfHosted != nil {
-		debugLogger = debug.New(cl.Name)
-	}
 
 	c := &Cluster{
-		logger:      lg,
-		debugLogger: debugLogger,
-		config:      config,
-		cluster:     cl,
-		eventCh:     make(chan *clusterEvent, 100),
-		stopCh:      make(chan struct{}),
-		status:      *(cl.Status.DeepCopy()),
-		eventsCli:   config.KubeCli.Core().Events(cl.Namespace),
+		logger:    lg,
+		config:    config,
+		cluster:   cl,
+		eventCh:   make(chan *clusterEvent, 100),
+		stopCh:    make(chan struct{}),
+		status:    *(cl.Status.DeepCopy()),
+		eventsCli: config.KubeCli.Core().Events(cl.Namespace),
 	}
 
 	go func() {
@@ -171,16 +161,7 @@ func (c *Cluster) create() error {
 func (c *Cluster) prepareSeedMember() error {
 	c.status.SetScalingUpCondition(0, c.cluster.Spec.Size)
 
-	var err error
-	if sh := c.cluster.Spec.SelfHosted; sh != nil {
-		if len(sh.BootMemberClientEndpoint) == 0 {
-			err = c.newSelfHostedSeedMember()
-		} else {
-			err = c.migrateBootMember()
-		}
-	} else {
-		err = c.bootstrap()
-	}
+	err := c.bootstrap()
 	if err != nil {
 		return err
 	}
@@ -280,7 +261,7 @@ func (c *Cluster) run() {
 				c.logger.Errorf("failed to reconcile: %v", rerr)
 				break
 			}
-			c.updateMemberStatus(c.members, k8sutil.GetPodNames(running))
+			c.updateMemberStatus(running)
 			if err := c.updateCRStatus(); err != nil {
 				c.logger.Warningf("periodic update CR status failed: %v", err)
 			}
@@ -327,7 +308,7 @@ func isSpecEqual(s1, s2 api.ClusterSpec) bool {
 
 func (c *Cluster) startSeedMember() error {
 	m := &etcdutil.Member{
-		Name:         etcdutil.CreateMemberName(c.cluster.Name, c.memberCounter),
+		Name:         k8sutil.UniqueMemberName(c.cluster.Name),
 		Namespace:    c.cluster.Namespace,
 		SecurePeer:   c.isSecurePeer(),
 		SecureClient: c.isSecureClient(),
@@ -336,7 +317,6 @@ func (c *Cluster) startSeedMember() error {
 	if err := c.createPod(ms, m, "new"); err != nil {
 		return fmt.Errorf("failed to create seed member (%s): %v", m.Name, err)
 	}
-	c.memberCounter++
 	c.members = ms
 	c.logger.Infof("cluster created with seed member (%s)", m.Name)
 	_, err := c.eventsCli.Create(k8sutil.NewMemberAddEvent(m.Name, c.cluster))
@@ -376,9 +356,26 @@ func (c *Cluster) setupServices() error {
 	return k8sutil.CreatePeerService(c.config.KubeCli, c.cluster.Name, c.cluster.Namespace, c.cluster.AsOwner())
 }
 
+func (c *Cluster) isPodPVEnabled() bool {
+	if podPolicy := c.cluster.Spec.Pod; podPolicy != nil {
+		return podPolicy.PersistentVolumeClaimSpec != nil
+	}
+	return false
+}
+
 func (c *Cluster) createPod(members etcdutil.MemberSet, m *etcdutil.Member, state string) error {
 	pod := k8sutil.NewEtcdPod(m, members.PeerURLPairs(), c.cluster.Name, state, uuid.New(), c.cluster.Spec, c.cluster.AsOwner())
-	_, err := c.config.KubeCli.Core().Pods(c.cluster.Namespace).Create(pod)
+	if c.isPodPVEnabled() {
+		pvc := k8sutil.NewEtcdPodPVC(m, *c.cluster.Spec.Pod.PersistentVolumeClaimSpec, c.cluster.Name, c.cluster.Namespace, c.cluster.AsOwner())
+		_, err := c.config.KubeCli.CoreV1().PersistentVolumeClaims(c.cluster.Namespace).Create(pvc)
+		if err != nil {
+			return fmt.Errorf("failed to create PVC for member (%s): %v", m.Name, err)
+		}
+		k8sutil.AddEtcdVolumeToPod(pod, pvc)
+	} else {
+		k8sutil.AddEtcdVolumeToPod(pod, nil)
+	}
+	_, err := c.config.KubeCli.CoreV1().Pods(c.cluster.Namespace).Create(pod)
 	return err
 }
 
@@ -390,12 +387,6 @@ func (c *Cluster) removePod(name string) error {
 		if !k8sutil.IsKubernetesResourceNotFoundError(err) {
 			return err
 		}
-		if c.isDebugLoggerEnabled() {
-			c.debugLogger.LogMessage(fmt.Sprintf("pod (%s) not found while trying to delete it", name))
-		}
-	}
-	if c.isDebugLoggerEnabled() {
-		c.debugLogger.LogPodDeletion(name)
 	}
 	return nil
 }
@@ -433,14 +424,18 @@ func (c *Cluster) pollPods() (running, pending []*v1.Pod, err error) {
 	return running, pending, nil
 }
 
-func (c *Cluster) updateMemberStatus(members etcdutil.MemberSet, running []string) {
+func (c *Cluster) updateMemberStatus(running []*v1.Pod) {
 	var unready []string
-	for _, m := range members {
-		if !util.PresentIn(m.Name, running) {
-			unready = append(unready, m.Name)
+	var ready []string
+	for _, pod := range running {
+		if k8sutil.IsPodReady(pod) {
+			ready = append(ready, pod.Name)
+			continue
 		}
+		unready = append(unready, pod.Name)
 	}
-	c.status.Members.Ready = running
+
+	c.status.Members.Ready = ready
 	c.status.Members.Unready = unready
 }
 
@@ -532,14 +527,4 @@ func (c *Cluster) logSpecUpdate(oldSpec, newSpec api.ClusterSpec) {
 		c.logger.Info(m)
 	}
 
-	if c.isDebugLoggerEnabled() {
-		c.debugLogger.LogClusterSpecUpdate(string(oldSpecBytes), string(newSpecBytes))
-	}
-}
-
-func (c *Cluster) isDebugLoggerEnabled() bool {
-	if c.cluster.Spec.SelfHosted != nil && c.debugLogger != nil {
-		return true
-	}
-	return false
 }

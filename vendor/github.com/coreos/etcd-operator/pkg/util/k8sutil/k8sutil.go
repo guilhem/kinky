@@ -35,6 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	utilrand "k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	"k8s.io/client-go/kubernetes"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp" // for gcp auth
@@ -55,6 +56,12 @@ const (
 	serverTLSVolume          = "member-server-tls"
 	operatorEtcdTLSDir       = "/etc/etcdtls/operator/etcd-tls"
 	operatorEtcdTLSVolume    = "etcd-client-tls"
+
+	randomSuffixLength = 10
+	// k8s object name has a maximum length
+	maxNameLength = 63 - randomSuffixLength - 1
+
+	defaultKubeAPIRequestTimeout = 30 * time.Second
 )
 
 const TolerateUnreadyEndpointsAnnotation = "service.alpha.kubernetes.io/tolerate-unready-endpoints"
@@ -78,14 +85,26 @@ func GetPodNames(pods []*v1.Pod) []string {
 	return res
 }
 
+// PVCNameFromMember the way we get PVC name from the member name
+func PVCNameFromMember(memberName string) string {
+	return memberName
+}
+
 func makeRestoreInitContainers(backupURL *url.URL, token, repo, version string, m *etcdutil.Member) []v1.Container {
 	return []v1.Container{
 		{
 			Name:  "fetch-backup",
 			Image: "tutum/curl",
 			Command: []string{
-				"/bin/sh", "-ec",
-				fmt.Sprintf("curl -o %s %s", backupFile, backupURL.String()),
+				"/bin/bash", "-ec",
+				fmt.Sprintf(`
+httpcode=$(curl --write-out %%\{http_code\} --silent --output %[1]s %[2]s)
+if [[ "$httpcode" != "200" ]]; then
+	echo "http status code: ${httpcode}" >> /dev/termination-log
+	cat %[1]s >> /dev/termination-log
+	exit 1
+fi
+					`, backupFile, backupURL.String()),
 			},
 			VolumeMounts: etcdVolumeMounts(),
 		},
@@ -99,7 +118,7 @@ func makeRestoreInitContainers(backupURL *url.URL, token, repo, version string, 
 					" --initial-cluster %[2]s=%[3]s"+
 					" --initial-cluster-token %[4]s"+
 					" --initial-advertise-peer-urls %[3]s"+
-					" --data-dir %[5]s", backupFile, m.Name, m.PeerURL(), token, dataDir),
+					" --data-dir %[5]s 2>/dev/termination-log", backupFile, m.Name, m.PeerURL(), token, dataDir),
 			},
 			VolumeMounts: etcdVolumeMounts(),
 		},
@@ -155,8 +174,7 @@ func createService(kubecli kubernetes.Interface, svcName, clusterName, ns, clust
 	return nil
 }
 
-// CreateAndWaitPod is a workaround for self hosted and util for testing.
-// We should eventually get rid of this in critical code path and move it to test util.
+// CreateAndWaitPod creates a pod and waits until it is running
 func CreateAndWaitPod(kubecli kubernetes.Interface, ns string, pod *v1.Pod, timeout time.Duration) (*v1.Pod, error) {
 	_, err := kubecli.CoreV1().Pods(ns).Create(pod)
 	if err != nil {
@@ -209,8 +227,22 @@ func newEtcdServiceManifest(svcName, clusterName, clusterIP string, ports []v1.S
 	return svc
 }
 
+// AddEtcdVolumeToPod abstract the process of appending volume spec to pod spec
+func AddEtcdVolumeToPod(pod *v1.Pod, pvc *v1.PersistentVolumeClaim) {
+	vol := v1.Volume{Name: etcdVolumeName}
+	if pvc != nil {
+		vol.VolumeSource = v1.VolumeSource{
+			PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{ClaimName: pvc.Name},
+		}
+	} else {
+		vol.VolumeSource = v1.VolumeSource{EmptyDir: &v1.EmptyDirVolumeSource{}}
+	}
+	pod.Spec.Volumes = append(pod.Spec.Volumes, vol)
+}
+
 func addRecoveryToPod(pod *v1.Pod, token string, m *etcdutil.Member, cs api.ClusterSpec, backupURL *url.URL) {
-	pod.Spec.InitContainers = makeRestoreInitContainers(backupURL, token, cs.Repository, cs.Version, m)
+	pod.Spec.InitContainers = append(pod.Spec.InitContainers,
+		makeRestoreInitContainers(backupURL, token, cs.Repository, cs.Version, m)...)
 }
 
 func addOwnerRefToObject(o metav1.Object, r metav1.OwnerReference) {
@@ -221,14 +253,32 @@ func addOwnerRefToObject(o metav1.Object, r metav1.OwnerReference) {
 // It's special that it has new token, and might need recovery init containers
 func NewSeedMemberPod(clusterName string, ms etcdutil.MemberSet, m *etcdutil.Member, cs api.ClusterSpec, owner metav1.OwnerReference, backupURL *url.URL) *v1.Pod {
 	token := uuid.New()
-	pod := NewEtcdPod(m, ms.PeerURLPairs(), clusterName, "new", token, cs, owner)
+	pod := newEtcdPod(m, ms.PeerURLPairs(), clusterName, "new", token, cs)
+	// TODO: PVC datadir support for restore process
+	AddEtcdVolumeToPod(pod, nil)
 	if backupURL != nil {
 		addRecoveryToPod(pod, token, m, cs, backupURL)
 	}
+	applyPodPolicy(clusterName, pod, cs.Pod)
+	addOwnerRefToObject(pod.GetObjectMeta(), owner)
 	return pod
 }
 
-func NewEtcdPod(m *etcdutil.Member, initialCluster []string, clusterName, state, token string, cs api.ClusterSpec, owner metav1.OwnerReference) *v1.Pod {
+// NewEtcdPodPVC create PVC object from etcd pod's PVC spec
+func NewEtcdPodPVC(m *etcdutil.Member, pvcSpec v1.PersistentVolumeClaimSpec, clusterName, namespace string, owner metav1.OwnerReference) *v1.PersistentVolumeClaim {
+	pvc := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      PVCNameFromMember(m.Name),
+			Namespace: namespace,
+			Labels:    LabelsForCluster(clusterName),
+		},
+		Spec: pvcSpec,
+	}
+	addOwnerRefToObject(pvc.GetObjectMeta(), owner)
+	return pvc
+}
+
+func newEtcdPod(m *etcdutil.Member, initialCluster []string, clusterName, state, token string, cs api.ClusterSpec) *v1.Pod {
 	commands := fmt.Sprintf("/usr/local/bin/etcd --data-dir=%s --name=%s --initial-advertise-peer-urls=%s "+
 		"--listen-peer-urls=%s --listen-client-urls=%s --advertise-client-urls=%s "+
 		"--initial-cluster=%s --initial-cluster-state=%s",
@@ -249,17 +299,19 @@ func NewEtcdPod(m *etcdutil.Member, initialCluster []string, clusterName, state,
 		"etcd_cluster": clusterName,
 	}
 
-	container := containerWithLivenessProbe(
+	livenessProbe := newEtcdProbe(cs.TLS.IsSecureClient())
+	readinessProbe := newEtcdProbe(cs.TLS.IsSecureClient())
+	readinessProbe.InitialDelaySeconds = 1
+	readinessProbe.TimeoutSeconds = 5
+	readinessProbe.PeriodSeconds = 5
+	readinessProbe.FailureThreshold = 3
+
+	container := containerWithProbes(
 		etcdContainer(strings.Split(commands, " "), cs.Repository, cs.Version),
-		etcdLivenessProbe(cs.TLS.IsSecureClient()))
+		livenessProbe,
+		readinessProbe)
 
-	if cs.Pod != nil {
-		container = containerWithRequirements(container, cs.Pod.Resources)
-	}
-
-	volumes := []v1.Volume{
-		{Name: "etcd-data", VolumeSource: v1.VolumeSource{EmptyDir: &v1.EmptyDirVolumeSource{}}},
-	}
+	volumes := []v1.Volume{}
 
 	if m.SecurePeer {
 		container.VolumeMounts = append(container.VolumeMounts, v1.VolumeMount{
@@ -285,6 +337,9 @@ func NewEtcdPod(m *etcdutil.Member, initialCluster []string, clusterName, state,
 		}})
 	}
 
+	runAsNonRoot := true
+	podUID := int64(9000)
+	fsGroup := podUID
 	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        m.Name,
@@ -293,7 +348,9 @@ func NewEtcdPod(m *etcdutil.Member, initialCluster []string, clusterName, state,
 		},
 		Spec: v1.PodSpec{
 			InitContainers: []v1.Container{{
-				Image: "busybox",
+				// busybox:latest uses uclibc which contains a bug that sometimes prevents name resolution
+				// More info: https://github.com/docker-library/busybox/issues/27
+				Image: "busybox:1.28.0-glibc",
 				Name:  "check-dns",
 				// In etcd 3.2, TLS listener will do a reverse-DNS lookup for pod IP -> hostname.
 				// If DNS entry is not warmed up, it will return empty result and peer connection will be rejected.
@@ -307,18 +364,25 @@ func NewEtcdPod(m *etcdutil.Member, initialCluster []string, clusterName, state,
 			RestartPolicy: v1.RestartPolicyNever,
 			Volumes:       volumes,
 			// DNS A record: `[m.Name].[clusterName].Namespace.svc`
-			// For example, etcd-0000 in default namesapce will have DNS name
-			// `etcd-0000.etcd.default.svc`.
+			// For example, etcd-795649v9kq in default namesapce will have DNS name
+			// `etcd-795649v9kq.etcd.default.svc`.
 			Hostname:                     m.Name,
 			Subdomain:                    clusterName,
 			AutomountServiceAccountToken: func(b bool) *bool { return &b }(false),
+			SecurityContext: &v1.PodSecurityContext{
+				RunAsUser:    &podUID,
+				RunAsNonRoot: &runAsNonRoot,
+				FSGroup:      &fsGroup,
+			},
 		},
 	}
-
-	applyPodPolicy(clusterName, pod, cs.Pod)
-
 	SetEtcdVersion(pod, cs.Version)
+	return pod
+}
 
+func NewEtcdPod(m *etcdutil.Member, initialCluster []string, clusterName, state, token string, cs api.ClusterSpec, owner metav1.OwnerReference) *v1.Pod {
+	pod := newEtcdPod(m, initialCluster, clusterName, state, token, cs)
+	applyPodPolicy(clusterName, pod, cs.Pod)
 	addOwnerRefToObject(pod.GetObjectMeta(), owner)
 	return pod
 }
@@ -344,7 +408,13 @@ func InClusterConfig() (*rest.Config, error) {
 	if len(os.Getenv("KUBERNETES_SERVICE_PORT")) == 0 {
 		os.Setenv("KUBERNETES_SERVICE_PORT", "443")
 	}
-	return rest.InClusterConfig()
+	cfg, err := rest.InClusterConfig()
+	if err != nil {
+		return nil, err
+	}
+	// Set a reasonable default request timeout
+	cfg.Timeout = defaultKubeAPIRequestTimeout
+	return cfg, nil
 }
 
 func IsKubernetesResourceAlreadyExistError(err error) bool {
@@ -406,7 +476,7 @@ func CascadeDeleteOptions(gracePeriodSeconds int64) *metav1.DeleteOptions {
 	}
 }
 
-// mergeLables merges l2 into l1. Conflicting label will be skipped.
+// mergeLabels merges l2 into l1. Conflicting label will be skipped.
 func mergeLabels(l1, l2 map[string]string) {
 	for k, v := range l2 {
 		if _, ok := l1[k]; ok {
@@ -414,4 +484,12 @@ func mergeLabels(l1, l2 map[string]string) {
 		}
 		l1[k] = v
 	}
+}
+
+func UniqueMemberName(clusterName string) string {
+	suffix := utilrand.String(randomSuffixLength)
+	if len(clusterName) > maxNameLength {
+		clusterName = clusterName[:maxNameLength]
+	}
+	return clusterName + "-" + suffix
 }
